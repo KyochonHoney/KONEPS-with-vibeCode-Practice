@@ -13,7 +13,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // 역할 시더 실행
+        $this->call(RoleSeeder::class);
 
         User::factory()->create([
             'name' => 'Test User',

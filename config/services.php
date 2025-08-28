@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'nara' => [
+        'api_key' => env('NARA_API_KEY', '3d18152cba55dc1ae0d4b82c0b965225de24e5fc4c97629bbadf4f7a75de6749'),
+        'timeout' => env('NARA_API_TIMEOUT', 30),
+    ],
+
 ];
