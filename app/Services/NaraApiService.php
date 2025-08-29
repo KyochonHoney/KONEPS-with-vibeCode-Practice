@@ -5,6 +5,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Exception;
 
 /**
@@ -17,7 +18,7 @@ class NaraApiService
     /**
      * 나라장터 API 기본 URL
      */
-    private const BASE_URL = 'https://apis.data.go.kr/1230000/BidPublicInfoService04';
+    private const BASE_URL = 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService';
     
     /**
      * API 서비스 키
@@ -49,8 +50,8 @@ class NaraApiService
             'serviceKey' => $this->serviceKey,
             'pageNo' => 1,
             'numOfRows' => 100,
-            'type' => 'json',
-            'inqryDiv' => '11', // 용역 분류
+            // 'type' => 'json', // 기본 XML 응답으로 시도
+            // 'inqryDiv' => '11', // 용역 분류 - 일단 제거해서 테스트
         ];
         
         $queryParams = array_merge($defaultParams, $params);
@@ -68,7 +69,12 @@ class NaraApiService
                 throw new Exception("API 요청 실패: HTTP {$response->status()}");
             }
             
-            $data = $response->json();
+            // XML 응답을 처리
+            $xmlContent = $response->body();
+            
+            // XML을 배열로 변환
+            $xml = simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NOCDATA);
+            $data = json_decode(json_encode($xml), true);
             
             if (!$this->isValidResponse($data)) {
                 throw new Exception('API 응답 형식 오류: ' . json_encode($data, JSON_UNESCAPED_UNICODE));
@@ -93,22 +99,30 @@ class NaraApiService
     }
     
     /**
-     * 특정 기간의 용역 공고 조회
+     * 특정 기간의 용역 공고 조회 (고급 필터링 포함)
      * 
      * @param string $startDate 시작일 (YYYYMMDD)
      * @param string $endDate 종료일 (YYYYMMDD)  
      * @param int $pageNo 페이지 번호
      * @param int $numOfRows 페이지당 개수
+     * @param array $filters 추가 필터 조건
      * @return array API 응답 데이터
      */
-    public function getTendersByDateRange(string $startDate, string $endDate, int $pageNo = 1, int $numOfRows = 100): array
+    public function getTendersByDateRange(string $startDate, string $endDate, int $pageNo = 1, int $numOfRows = 100, array $filters = []): array
     {
-        return $this->getBidPblancListInfoServc([
+        $params = [
             'inqryBgnDt' => $startDate,
             'inqryEndDt' => $endDate,
             'pageNo' => $pageNo,
             'numOfRows' => $numOfRows,
-        ]);
+        ];
+        
+        // 고급 필터링 적용
+        if (!empty($filters)) {
+            $params = array_merge($params, $this->buildAdvancedFilters($filters));
+        }
+        
+        return $this->getBidPblancListInfoServc($params);
     }
     
     /**
@@ -146,28 +160,41 @@ class NaraApiService
      */
     private function isValidResponse(array $data): bool
     {
-        // 기본 응답 구조 검증
-        if (!isset($data['response']['header']['resultCode'])) {
-            return false;
+        // OpenAPI_ServiceResponse 구조 검증 (XML 기반)
+        if (isset($data['cmmMsgHeader'])) {
+            $header = $data['cmmMsgHeader'];
+            
+            // 오류 체크
+            if (isset($header['returnReasonCode']) && $header['returnReasonCode'] !== '00') {
+                Log::warning('나라장터 API 오류', [
+                    'return_code' => $header['returnReasonCode'],
+                    'return_msg' => $header['returnAuthMsg'] ?? 'Unknown error',
+                    'err_msg' => $header['errMsg'] ?? ''
+                ]);
+                return false;
+            }
+            
+            return true;
         }
         
-        $resultCode = $data['response']['header']['resultCode'];
-        
-        // 성공 코드가 아닌 경우
-        if ($resultCode !== '00') {
-            Log::warning('나라장터 API 오류 코드', [
-                'result_code' => $resultCode,
-                'result_msg' => $data['response']['header']['resultMsg'] ?? 'Unknown error'
-            ]);
-            return false;
+        // 기존 JSON response 구조도 지원
+        if (isset($data['response']['header']['resultCode'])) {
+            $resultCode = $data['response']['header']['resultCode'];
+            
+            if ($resultCode !== '00') {
+                Log::warning('나라장터 API 오류 코드', [
+                    'result_code' => $resultCode,
+                    'result_msg' => $data['response']['header']['resultMsg'] ?? 'Unknown error'
+                ]);
+                return false;
+            }
+            
+            return true;
         }
         
-        // body 구조 검증 (데이터가 없는 경우도 정상)
-        if (!isset($data['response']['body'])) {
-            return false;
-        }
-        
-        return true;
+        // 응답 구조를 인식할 수 없음
+        Log::error('알 수 없는 API 응답 구조', ['data' => $data]);
+        return false;
     }
     
     /**
@@ -180,16 +207,144 @@ class NaraApiService
         try {
             $response = $this->getBidPblancListInfoServc([
                 'pageNo' => 1,
-                'numOfRows' => 1
+                'numOfRows' => 10,
+                'inqryBgnDt' => date('Ymd', strtotime('-7 days')),
+                'inqryEndDt' => date('Ymd')
             ]);
             
-            return isset($response['response']['header']['resultCode']) 
-                && $response['response']['header']['resultCode'] === '00';
+            // XML 응답 구조에 맞게 수정
+            return isset($response['cmmMsgHeader']['returnReasonCode']) 
+                && $response['cmmMsgHeader']['returnReasonCode'] === '00';
                 
         } catch (Exception $e) {
             Log::error('나라장터 API 연결 테스트 실패', ['error' => $e->getMessage()]);
             return false;
         }
+    }
+    
+    /**
+     * 고급 필터링 파라미터 구성
+     * 
+     * @param array $filters 필터 조건
+     * @return array API 파라미터
+     */
+    private function buildAdvancedFilters(array $filters): array
+    {
+        $params = [];
+        
+        // 지역 필터 (전체, 경기, 서울)
+        if (!empty($filters['regions'])) {
+            $regionMap = [
+                '전체' => '',
+                '서울' => '11',
+                '경기' => '41'
+            ];
+            
+            $regionCodes = [];
+            foreach ($filters['regions'] as $region) {
+                if (isset($regionMap[$region]) && $regionMap[$region] !== '') {
+                    $regionCodes[] = $regionMap[$region];
+                }
+            }
+            
+            if (!empty($regionCodes)) {
+                $params['area'] = implode(',', $regionCodes);
+            }
+        }
+        
+        // 업종 코드 필터 (1426, 1468, 6528)
+        if (!empty($filters['industry_codes'])) {
+            $allowedCodes = ['1426', '1468', '6528'];
+            $validCodes = array_intersect($filters['industry_codes'], $allowedCodes);
+            
+            if (!empty($validCodes)) {
+                $params['industryType'] = implode(',', $validCodes);
+            }
+        }
+        
+        // 직접생산확인증명서 코드 필터
+        if (!empty($filters['product_codes'])) {
+            $allowedProductCodes = [
+                '8111200201', '8111200202', '8111229901', '8111181101', 
+                '8111189901', '8111219901', '8111159801', '8111159901', '8115169901'
+            ];
+            $validProductCodes = array_intersect($filters['product_codes'], $allowedProductCodes);
+            
+            if (!empty($validProductCodes)) {
+                $params['productCode'] = implode(',', $validProductCodes);
+            }
+        }
+        
+        // 용역 분류 강제 설정 (11: 용역)
+        $params['inqryDiv'] = '11';
+        
+        Log::info('고급 필터링 적용', [
+            'original_filters' => $filters,
+            'api_params' => $params
+        ]);
+        
+        return $params;
+    }
+    
+    /**
+     * 입찰공고 첨부파일 다운로드
+     * 
+     * @param string $bidNtceNo 공고번호
+     * @param string $fileName 파일명
+     * @param string $fileUrl 파일 URL
+     * @return string|null 로컬 저장 경로
+     */
+    public function downloadAttachment(string $bidNtceNo, string $fileName, string $fileUrl): ?string
+    {
+        try {
+            $response = Http::timeout(60)->get($fileUrl);
+            
+            if (!$response->successful()) {
+                Log::error('첨부파일 다운로드 실패', [
+                    'bid_no' => $bidNtceNo,
+                    'file_name' => $fileName,
+                    'file_url' => $fileUrl,
+                    'http_status' => $response->status()
+                ]);
+                return null;
+            }
+            
+            $directory = 'attachments/' . date('Y/m/d');
+            $safeFileName = $bidNtceNo . '_' . preg_replace('/[^\w\.\-]/', '_', $fileName);
+            $filePath = $directory . '/' . $safeFileName;
+            
+            Storage::put($filePath, $response->body());
+            
+            Log::info('첨부파일 다운로드 성공', [
+                'bid_no' => $bidNtceNo,
+                'file_name' => $fileName,
+                'local_path' => $filePath,
+                'file_size' => strlen($response->body())
+            ]);
+            
+            return $filePath;
+            
+        } catch (Exception $e) {
+            Log::error('첨부파일 다운로드 오류', [
+                'bid_no' => $bidNtceNo,
+                'file_name' => $fileName,
+                'file_url' => $fileUrl,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+    
+    /**
+     * 나라장터 원본 공고 URL 생성
+     * 
+     * @param string $bidNtceNo 공고번호
+     * @return string 나라장터 URL
+     */
+    public function generateNaraUrl(string $bidNtceNo): string
+    {
+        // 나라장터 공고 상세 페이지 URL 패턴
+        return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=/pt/menu/frameTgong.do?url=https://www.g2b.go.kr:8082/ep/invitation/publish/bidInfoDtl.do?bidno={$bidNtceNo}";
     }
     
     /**
