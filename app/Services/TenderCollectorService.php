@@ -216,7 +216,8 @@ class TenderCollectorService
             'category_id' => $categoryId,
             'region' => $this->extractRegion($item),
             'status' => $this->mapStatus($item, $endDate),
-            'source_url' => $this->naraApi->generateNaraUrl($item['bidNtceNo'] ?? ''),
+            'source_url' => $item['bidNtceUrl'] ?? $this->generateNaraDetailUrl($item['bidNtceNo'] ?? ''),
+            'detail_url' => $item['bidNtceUrl'] ?? $this->generateNaraDetailUrl($item['bidNtceNo'] ?? ''),
             'collected_at' => now(),
             'metadata' => json_encode($includeAllFields ? $item : $this->getEssentialFields($item), JSON_UNESCAPED_UNICODE)
         ];
@@ -522,6 +523,22 @@ class TenderCollectorService
                 ->toArray(),
             'last_updated' => Tender::latest('collected_at')->value('collected_at')?->format('Y-m-d H:i:s'),
         ];
+    }
+    
+    /**
+     * 나라장터 공고 상세 페이지 URL 생성 (실제 접근 가능한 URL)
+     * 
+     * @param string $bidNtceNo 공고번호
+     * @return string 나라장터 상세 페이지 URL
+     */
+    private function generateNaraDetailUrl(string $bidNtceNo): string
+    {
+        if (empty($bidNtceNo)) {
+            return '#';
+        }
+        
+        // 나라장터 공고 상세 페이지 직접 링크 (더 안정적)
+        return "https://www.g2b.go.kr:8082/ep/invitation/publish/bidInfoDtl.do?bidno={$bidNtceNo}";
     }
 }
 // [END nara:tender_collector]

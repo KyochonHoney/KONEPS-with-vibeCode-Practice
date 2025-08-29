@@ -217,12 +217,25 @@
                                             <td>
                                                 <div class="btn-group" role="group">
                                                     <a href="{{ route('admin.tenders.show', $tender) }}" 
-                                                       class="btn btn-sm btn-outline-primary">
+                                                       class="btn btn-sm btn-outline-primary" title="상세보기">
                                                         <i class="bi bi-eye"></i>
                                                     </a>
+                                                    @if($tender->source_url && $tender->source_url !== '#')
+                                                        <a href="{{ $tender->source_url }}" 
+                                                           target="_blank" 
+                                                           class="btn btn-sm btn-outline-warning" title="나라장터 원본">
+                                                            <i class="bi bi-box-arrow-up-right"></i>
+                                                        </a>
+                                                    @elseif($tender->tender_no)
+                                                        <a href="{{ $tender->detail_url }}" 
+                                                           target="_blank" 
+                                                           class="btn btn-sm btn-outline-warning" title="나라장터 원본">
+                                                            <i class="bi bi-box-arrow-up-right"></i>
+                                                        </a>
+                                                    @endif
                                                     <button type="button" 
                                                             class="btn btn-sm btn-outline-danger delete-btn" 
-                                                            data-id="{{ $tender->id }}">
+                                                            data-id="{{ $tender->id }}" title="삭제">
                                                         <i class="bi bi-trash"></i>
                                                     </button>
                                                 </div>
@@ -234,8 +247,8 @@
                         </div>
 
                         <!-- 페이지네이션 -->
-                        <div class="d-flex justify-content-center mt-4">
-                            {{ $tenders->links() }}
+                        <div class="mt-4">
+                            {{ $tenders->links('custom.pagination.bootstrap-4') }}
                         </div>
 
                         <!-- 일괄 작업 -->
@@ -298,6 +311,41 @@
 }
 .shadow {
     box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15) !important;
+}
+
+/* 페이지네이션 스타일 개선 */
+.pagination {
+    margin-bottom: 0;
+}
+
+.page-link {
+    border: 1px solid #dee2e6;
+    color: #4e73df;
+    padding: 0.5rem 0.75rem;
+    margin-left: -1px;
+}
+
+.page-link:hover {
+    color: #224abe;
+    background-color: #e9ecef;
+    border-color: #dee2e6;
+}
+
+.page-item.active .page-link {
+    background-color: #4e73df;
+    border-color: #4e73df;
+    color: white;
+}
+
+.page-item.disabled .page-link {
+    color: #6c757d;
+    background-color: #fff;
+    border-color: #dee2e6;
+}
+
+.pagination .page-link {
+    border-radius: 0.25rem;
+    margin: 0 2px;
 }
 </style>
 @endpush

@@ -69,7 +69,7 @@
                         </a>
                     </div>
                     <div class="col-md-2">
-                        <a href="#" class="btn btn-outline-success w-100">
+                        <a href="{{ route('admin.tenders.index') }}" class="btn btn-outline-success w-100">
                             <i class="bi bi-folder me-2"></i>
                             공고 관리
                         </a>

@@ -108,9 +108,14 @@ class TenderController extends Controller
     public function executeCollection(Request $request): JsonResponse
     {
         $request->validate([
-            'type' => 'required|in:today,recent,custom',
+            'type' => 'required|in:today,recent,custom,advanced',
             'start_date' => 'required_if:type,custom|date|date_format:Y-m-d',
             'end_date' => 'required_if:type,custom|date|date_format:Y-m-d|after_or_equal:start_date',
+            'filter_start_date' => 'required_if:type,advanced|date|date_format:Y-m-d',
+            'filter_end_date' => 'required_if:type,advanced|date|date_format:Y-m-d|after_or_equal:filter_start_date',
+            'regions' => 'sometimes|array',
+            'industry_codes' => 'sometimes|array',
+            'product_codes' => 'sometimes|array',
         ]);
 
         try {
@@ -120,6 +125,13 @@ class TenderController extends Controller
                 'custom' => $this->collector->collectTendersByDateRange(
                     $request->get('start_date'),
                     $request->get('end_date')
+                ),
+                'advanced' => $this->collector->collectTendersWithAdvancedFilters(
+                    $request->get('filter_start_date'),
+                    $request->get('filter_end_date'),
+                    $request->get('regions', []),
+                    $request->get('industry_codes', []),
+                    $request->get('product_codes', [])
                 ),
             };
 

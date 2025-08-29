@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\TenderController;
+use App\Http\Controllers\Admin\AttachmentController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -49,6 +50,21 @@ Route::middleware('auth')->group(function () {
             Route::delete('/{tender}', [TenderController::class, 'destroy'])->name('destroy');
             Route::patch('/{tender}/status', [TenderController::class, 'updateStatus'])->name('update_status');
             Route::patch('/bulk/status', [TenderController::class, 'bulkUpdateStatus'])->name('bulk_update_status');
+        });
+        
+        // 첨부파일 관리
+        Route::prefix('admin/attachments')->name('admin.attachments.')->group(function () {
+            Route::get('/', [AttachmentController::class, 'index'])->name('index');
+            Route::post('/collect/{tender}', [AttachmentController::class, 'collect'])->name('collect');
+            Route::post('/download-all-as-hwp/{tender}', [AttachmentController::class, 'downloadAllFilesAsHwp'])->name('download_all_as_hwp');
+            Route::post('/download-hwp/{tender}', [AttachmentController::class, 'downloadHwpFiles'])->name('download_hwp');
+            Route::get('/download/{attachment}', [AttachmentController::class, 'download'])->name('download');
+            Route::get('/download-hwp-zip/{tender}', [AttachmentController::class, 'downloadAllHwpAsZip'])->name('download_hwp_zip');
+            Route::get('/download-hwp/{attachment}', [AttachmentController::class, 'downloadHwpFile'])->name('download_hwp_file');
+            Route::post('/force-download/{attachment}', [AttachmentController::class, 'forceDownload'])->name('force_download');
+            Route::delete('/{attachment}', [AttachmentController::class, 'destroy'])->name('destroy');
+            Route::post('/bulk-download', [AttachmentController::class, 'bulkDownload'])->name('bulk_download');
+            Route::get('/stats', [AttachmentController::class, 'stats'])->name('stats');
         });
     });
 });

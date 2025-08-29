@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Role;
+use App\Models\Tender;
+use App\Services\TenderCollectorService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +16,13 @@ use Illuminate\View\View;
 class AuthController extends Controller
 {
     // [BEGIN nara:auth_controller]
+    
+    private TenderCollectorService $collectorService;
+
+    public function __construct(TenderCollectorService $collectorService)
+    {
+        $this->collectorService = $collectorService;
+    }
     
     /**
      * 로그인 폼 표시
@@ -132,10 +141,14 @@ class AuthController extends Controller
     public function dashboard(): View
     {
         $user = Auth::user();
+        
+        // 실제 통계 데이터 수집
+        $collectionStats = $this->collectorService->getCollectionStats();
+        
         $stats = [
-            'total_tenders' => 0, // TODO: 실제 데이터로 교체
-            'total_analyses' => 0, // TODO: 실제 데이터로 교체
-            'total_proposals' => 0, // TODO: 실제 데이터로 교체
+            'total_tenders' => $collectionStats['total_records'] ?? 0,
+            'total_analyses' => 0, // AI 분석 기능은 향후 구현 예정
+            'total_proposals' => 0, // 제안서 생성 기능은 향후 구현 예정
         ];
 
         return view('dashboard', compact('user', 'stats'));
@@ -152,11 +165,14 @@ class AuthController extends Controller
             abort(403, '접근 권한이 없습니다.');
         }
 
+        // 실제 통계 데이터 수집
+        $collectionStats = $this->collectorService->getCollectionStats();
+        
         $stats = [
             'total_users' => User::count(),
-            'total_tenders' => 0, // TODO: 실제 데이터로 교체
-            'total_analyses' => 0, // TODO: 실제 데이터로 교체
-            'total_proposals' => 0, // TODO: 실제 데이터로 교체
+            'total_tenders' => $collectionStats['total_records'] ?? 0,
+            'total_analyses' => 0, // AI 분석 기능은 향후 구현 예정
+            'total_proposals' => 0, // 제안서 생성 기능은 향후 구현 예정
         ];
 
         return view('admin.dashboard', compact('user', 'stats'));

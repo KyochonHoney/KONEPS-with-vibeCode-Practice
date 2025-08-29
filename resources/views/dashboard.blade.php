@@ -53,7 +53,7 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-3">
-                        <a href="#" class="btn btn-outline-primary w-100">
+                        <a href="{{ route('admin.tenders.index') }}" class="btn btn-outline-primary w-100">
                             <i class="bi bi-search me-2"></i>
                             용역공고 검색
                         </a>

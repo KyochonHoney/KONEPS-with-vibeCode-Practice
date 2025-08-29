@@ -131,6 +131,13 @@
                                                 <small class="text-muted d-block">원하는 기간을 지정하여 수집합니다.</small>
                                             </label>
                                         </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="type" id="advanced" value="advanced">
+                                            <label class="form-check-label" for="advanced">
+                                                <strong>고급 필터링</strong>
+                                                <small class="text-muted d-block">지역, 업종, 인증코드 등 세부 조건을 지정하여 수집합니다.</small>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -145,6 +152,113 @@
                                         <label for="end_date" class="form-label">종료일</label>
                                         <input type="date" class="form-control" id="end_date" name="end_date" 
                                                value="{{ date('Y-m-d') }}">
+                                    </div>
+                                </div>
+
+                                <!-- 고급 필터링 옵션 -->
+                                <div id="advancedFilters" class="mb-4" style="display: none;">
+                                    <div class="card border-info">
+                                        <div class="card-header bg-info text-white">
+                                            <h6 class="m-0"><i class="bi bi-funnel me-1"></i> 고급 필터링 옵션</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="filter_start_date" class="form-label">시작일</label>
+                                                    <input type="date" class="form-control" id="filter_start_date" name="filter_start_date" 
+                                                           value="{{ date('Y-m-d', strtotime('-7 days')) }}">
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label for="filter_end_date" class="form-label">종료일</label>
+                                                    <input type="date" class="form-control" id="filter_end_date" name="filter_end_date" 
+                                                           value="{{ date('Y-m-d') }}">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-12">
+                                                    <label class="form-label">지역 선택</label>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="regions[]" value="전체" id="region_all" checked>
+                                                        <label class="form-check-label" for="region_all">전체</label>
+                                                    </div>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="regions[]" value="서울" id="region_seoul" checked>
+                                                        <label class="form-check-label" for="region_seoul">서울특별시</label>
+                                                    </div>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="regions[]" value="경기" id="region_gyeonggi" checked>
+                                                        <label class="form-check-label" for="region_gyeonggi">경기도</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-12">
+                                                    <label class="form-label">업종 코드</label>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="industry_codes[]" value="1426" id="industry_1426" checked>
+                                                        <label class="form-check-label" for="industry_1426">1426 - 정보통신서비스</label>
+                                                    </div>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="industry_codes[]" value="1468" id="industry_1468" checked>
+                                                        <label class="form-check-label" for="industry_1468">1468 - 소프트웨어개발</label>
+                                                    </div>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="industry_codes[]" value="6528" id="industry_6528" checked>
+                                                        <label class="form-check-label" for="industry_6528">6528 - 컨설팅서비스</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-12">
+                                                    <label class="form-label">직접생산확인증명서 코드</label>
+                                                    <div class="row">
+                                                        <div class="col-md-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111200201" id="product_8111200201" checked>
+                                                                <label class="form-check-label" for="product_8111200201">8111200201 - 데이터처리서비스</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111200202" id="product_8111200202" checked>
+                                                                <label class="form-check-label" for="product_8111200202">8111200202 - 빅데이터분석서비스</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111229901" id="product_8111229901" checked>
+                                                                <label class="form-check-label" for="product_8111229901">8111229901 - 소프트웨어유지및지원서비스</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111181101" id="product_8111181101" checked>
+                                                                <label class="form-check-label" for="product_8111181101">8111181101 - 운영위탁서비스</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111189901" id="product_8111189901" checked>
+                                                                <label class="form-check-label" for="product_8111189901">8111189901 - 정보시스템유지관리서비스</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111219901" id="product_8111219901" checked>
+                                                                <label class="form-check-label" for="product_8111219901">8111219901 - 인터넷지원개발서비스</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111159801" id="product_8111159801" checked>
+                                                                <label class="form-check-label" for="product_8111159801">8111159801 - 패키지소프트웨어개발및도입서비스</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8111159901" id="product_8111159901" checked>
+                                                                <label class="form-check-label" for="product_8111159901">8111159901 - 정보시스템개발서비스</label>
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="product_codes[]" value="8115169901" id="product_8115169901" checked>
+                                                                <label class="form-check-label" for="product_8115169901">8115169901 - 공간정보DB구축서비스</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -212,12 +326,17 @@ $(document).ready(function() {
     // 페이지 로드 시 API 연결 상태 확인
     checkApiStatus();
 
-    // 수집 범위 변경 시 사용자 지정 날짜 표시/숨김
+    // 수집 범위 변경 시 옵션 표시/숨김
     $('input[name="type"]').change(function() {
         if ($(this).val() === 'custom') {
             $('#customDateRange').show();
+            $('#advancedFilters').hide();
+        } else if ($(this).val() === 'advanced') {
+            $('#customDateRange').hide();
+            $('#advancedFilters').show();
         } else {
             $('#customDateRange').hide();
+            $('#advancedFilters').hide();
         }
     });
 

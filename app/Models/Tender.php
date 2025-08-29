@@ -6,6 +6,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
 
 /**
@@ -38,6 +39,7 @@ class Tender extends Model
         'region',
         'status',
         'source_url',
+        'detail_url',
         'collected_at',
         'metadata'
     ];
@@ -61,6 +63,26 @@ class Tender extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(TenderCategory::class, 'category_id');
+    }
+
+    /**
+     * 첨부파일들과의 관계
+     */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(Attachment::class, 'tender_id');
+    }
+
+    /**
+     * 한글파일만 가져오는 관계
+     */
+    public function hwpAttachments(): HasMany
+    {
+        return $this->attachments()->where(function($query) {
+            $query->where('file_type', 'hwp')
+                  ->orWhere('mime_type', 'application/x-hwp')
+                  ->orWhere('original_name', 'LIKE', '%.hwp');
+        });
     }
 
     /**
@@ -196,10 +218,10 @@ class Tender extends Model
     public function getStatusClassAttribute(): string
     {
         return match($this->status) {
-            'active' => 'badge bg-success',
-            'closed' => 'badge bg-secondary', 
-            'cancelled' => 'badge bg-danger',
-            default => 'badge bg-warning'
+            'active' => 'badge bg-success text-white',
+            'closed' => 'badge bg-dark text-white', 
+            'cancelled' => 'badge bg-danger text-white',
+            default => 'badge bg-warning text-dark'
         };
     }
 
@@ -251,7 +273,8 @@ class Tender extends Model
             return '#';
         }
         
-        return "https://www.g2b.go.kr/pt/menu/selectSubFrame.do?framesrc=/pt/menu/frameTgong.do?url=https://www.g2b.go.kr:8082/ep/invitation/publish/bidInfoDtl.do?bidno={$this->tender_no}";
+        // 나라장터 직접 링크 (더 간단하고 안정적)
+        return "https://www.g2b.go.kr:8082/ep/invitation/publish/bidInfoDtl.do?bidno={$this->tender_no}";
     }
 
     /**
