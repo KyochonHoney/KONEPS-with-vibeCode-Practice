@@ -52,8 +52,10 @@ class TenderController extends Controller
             $query->where('status', $request->get('status'));
         }
 
-        if ($request->filled('category_id')) {
-            $query->where('category_id', $request->get('category_id'));
+        // 업종코드 패턴 필터링
+        if ($request->filled('industry_pattern')) {
+            $pattern = $request->get('industry_pattern');
+            $query->where('pub_prcrmnt_clsfc_no', 'like', $pattern . '%');
         }
 
         if ($request->filled('start_date')) {
@@ -71,7 +73,40 @@ class TenderController extends Controller
         // 통계 데이터
         $stats = $this->collector->getCollectionStats();
 
-        return view('admin.tenders.index', compact('tenders', 'stats'));
+        // 업종코드 패턴별 통계
+        $industryStats = $this->getIndustryPatternStats();
+
+        return view('admin.tenders.index', compact('tenders', 'stats', 'industryStats'));
+    }
+
+    /**
+     * 업종코드 패턴별 통계 조회
+     * 
+     * @return array
+     */
+    private function getIndustryPatternStats(): array
+    {
+        $patterns = [
+            '81112002' => '데이터처리/빅데이터분석서비스',
+            '81112299' => '소프트웨어유지및지원서비스', 
+            '81111811' => '운영위탁서비스',
+            '81111899' => '정보시스템유지관리서비스',
+            '81112199' => '인터넷지원개발서비스',
+            '81111598' => '패키지소프트웨어/정보시스템개발서비스',
+            '81151699' => '공간정보DB구축서비스'
+        ];
+
+        $stats = [];
+        foreach ($patterns as $pattern => $name) {
+            $count = Tender::where('pub_prcrmnt_clsfc_no', 'like', $pattern . '%')->count();
+            $stats[] = [
+                'pattern' => $pattern,
+                'name' => $name,
+                'count' => $count
+            ];
+        }
+
+        return $stats;
     }
 
     /**
@@ -124,14 +159,12 @@ class TenderController extends Controller
                 'recent' => $this->collector->collectRecentTenders(),
                 'custom' => $this->collector->collectTendersByDateRange(
                     $request->get('start_date'),
-                    $request->get('end_date')
+                    $request->get('end_date'),
+                    [] // 빈 필터 배열
                 ),
                 'advanced' => $this->collector->collectTendersWithAdvancedFilters(
                     $request->get('filter_start_date'),
-                    $request->get('filter_end_date'),
-                    $request->get('regions', []),
-                    $request->get('industry_codes', []),
-                    $request->get('product_codes', [])
+                    $request->get('filter_end_date')
                 ),
             };
 

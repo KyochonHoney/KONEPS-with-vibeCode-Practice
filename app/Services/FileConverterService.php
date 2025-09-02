@@ -52,11 +52,11 @@ class FileConverterService
     ];
 
     /**
-     * 파일을 HWP 형식으로 변환
+     * 파일을 한글 지원 HTML 형식으로 변환
      * 
      * @param string $sourceFilePath 원본 파일 경로
      * @param string $originalFileName 원본 파일명
-     * @return string|null 변환된 HWP 파일 경로
+     * @return string|null 변환된 한글 HTML 파일 경로
      */
     public function convertToHwp(string $sourceFilePath, string $originalFileName): ?string
     {
@@ -223,45 +223,117 @@ class FileConverterService
     }
 
     /**
-     * 텍스트를 HWP 형식으로 생성 (실제로는 HWP Mock 파일)
+     * 텍스트를 실제로 열 수 있는 HTML 형식으로 생성
      */
     private function createHwpFromText(string $content, string $originalFileName): string
     {
-        // HWP 파일 생성 (실제로는 한글 파일 형식으로 생성해야 하지만, 
-        // 여기서는 텍스트 기반의 Mock HWP 파일을 생성합니다)
+        // 실제로 열 수 있는 HTML 파일로 생성
+        // 모든 브라우저에서 한글 지원, 포맷팅 가능
         
         $baseName = pathinfo($originalFileName, PATHINFO_FILENAME);
-        $hwpFileName = $baseName . '_converted.hwp';
-        $hwpFilePath = 'converted_hwp/' . date('Y/m/d') . '/' . $hwpFileName;
+        $htmlFileName = $baseName . '_korean.html';
+        $htmlFilePath = 'converted_korean/' . date('Y/m/d') . '/' . $htmlFileName;
 
-        // HWP Mock 헤더 추가
-        $hwpContent = $this->createHwpHeader() . "\n\n" . $content . "\n\n" . $this->createHwpFooter();
+        // UTF-8 인코딩으로 한글 지원하는 HTML 생성
+        $htmlContent = $this->createKoreanHtmlDocument($content, $originalFileName);
 
-        Storage::put($hwpFilePath, $hwpContent);
+        Storage::put($htmlFilePath, $htmlContent);
 
-        return $hwpFilePath;
+        return $htmlFilePath;
     }
 
     /**
-     * HWP Mock 헤더 생성
+     * 한글 지원 HTML 문서 생성
      */
-    private function createHwpHeader(): string
+    private function createKoreanHtmlDocument(string $content, string $originalFileName): string
     {
-        return "HWP Document Format (Mock)\n" .
-               "========================================\n" .
-               "변환 일시: " . now()->format('Y-m-d H:i:s') . "\n" .
-               "변환 시스템: 나라장터 AI 제안서 시스템\n" .
-               "========================================";
-    }
+        $title = pathinfo($originalFileName, PATHINFO_FILENAME);
+        $convertTime = now()->format('Y년 m월 d일 H시 i분');
+        
+        // HTML 헤드에서 한글 폰트 및 스타일 적용
+        $htmlContent = '<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>' . htmlspecialchars($title) . '</title>
+    <style>
+        body { 
+            font-family: "맑은 고딕", "Malgun Gothic", "나눔고딕", "NanumGothic", Arial, sans-serif;
+            line-height: 1.6; 
+            margin: 0; 
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 30px; 
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header { 
+            border-bottom: 3px solid #007bff; 
+            padding-bottom: 15px; 
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        .header h1 { 
+            color: #007bff; 
+            margin: 0;
+            font-size: 24px;
+        }
+        .meta { 
+            background-color: #e9ecef; 
+            padding: 15px; 
+            border-radius: 5px; 
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .content { 
+            white-space: pre-wrap; 
+            font-size: 14px;
+            line-height: 1.8;
+        }
+        .footer { 
+            margin-top: 30px; 
+            padding-top: 15px; 
+            border-top: 1px solid #dee2e6;
+            text-align: center; 
+            font-size: 12px; 
+            color: #6c757d;
+        }
+        @media print {
+            body { background-color: white; }
+            .container { box-shadow: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>' . htmlspecialchars($title) . '</h1>
+        </div>
+        
+        <div class="meta">
+            <strong>📄 원본 파일:</strong> ' . htmlspecialchars($originalFileName) . '<br>
+            <strong>🔄 변환 일시:</strong> ' . $convertTime . '<br>
+            <strong>⚙️ 변환 시스템:</strong> 나라장터 AI 제안서 시스템<br>
+            <strong>📝 형식:</strong> 한글 지원 HTML 문서
+        </div>
+        
+        <div class="content">' . htmlspecialchars($content) . '</div>
+        
+        <div class="footer">
+            <p>📌 이 문서는 자동으로 한글 지원 HTML 형식으로 변환되었습니다</p>
+            <p>🌐 모든 웹 브라우저에서 열람 가능하며 인쇄할 수 있습니다</p>
+        </div>
+    </div>
+</body>
+</html>';
 
-    /**
-     * HWP Mock 푸터 생성
-     */
-    private function createHwpFooter(): string
-    {
-        return "========================================\n" .
-               "문서 끝\n" .
-               "이 문서는 자동으로 HWP 형식으로 변환되었습니다.";
+        return $htmlContent;
     }
 
     /**
@@ -386,13 +458,14 @@ class FileConverterService
      */
     public function getConversionStats(): array
     {
-        // 변환된 파일들의 통계 정보 반환
-        $convertedFiles = Storage::files('converted_hwp');
+        // 변환된 파일들의 통계 정보 반환 (HTML 형식으로 변경)
+        $convertedFiles = Storage::files('converted_korean');
         
         return [
             'total_conversions' => count($convertedFiles),
             'conversion_date' => date('Y-m-d'),
             'supported_formats' => count(self::CONVERTIBLE_FORMATS),
+            'output_format' => 'Korean HTML (UTF-8)',
         ];
     }
 }

@@ -61,6 +61,9 @@
                         <li class="nav-item">
                             <a class="nav-link" href="{{ route('admin.tenders.index') }}">공고 목록</a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ route('admin.proposals.index') }}">제안서 관리</a>
+                        </li>
                         @if(auth()->user()->isAdmin())
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ route('admin.dashboard') }}">관리자</a>

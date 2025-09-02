@@ -89,7 +89,7 @@ class CollectTenders extends Command
         if ($startDate && $endDate) {
             $this->validateDateRange($startDate, $endDate);
             $this->info("기간별 데이터 수집을 시작합니다: {$startDate} ~ {$endDate}");
-            return $this->collector->collectTendersByDateRange($startDate, $endDate);
+            return $this->collector->collectTendersWithAdvancedFilters($startDate, $endDate);
         }
         
         // 기본값: 최근 7일
@@ -164,12 +164,12 @@ class CollectTenders extends Command
         $stats = $this->collector->getCollectionStats();
         
         $this->info("\n=== 현재 데이터베이스 상태 ===");
-        $this->line("전체 입찰공고: " . number_format($stats['total_tenders']) . "건");
-        $this->line("활성 공고: " . number_format($stats['active_tenders']) . "건");
-        $this->line("마감 공고: " . number_format($stats['closed_tenders']) . "건");
+        $this->line("전체 입찰공고: " . number_format($stats['total_records']) . "건");
+        $this->line("활성 공고: " . number_format($stats['active_count']) . "건");
+        $this->line("마감 공고: " . number_format($stats['closed_count']) . "건");
         
-        if ($stats['last_collection']) {
-            $lastCollection = Carbon::parse($stats['last_collection']);
+        if ($stats['last_updated']) {
+            $lastCollection = Carbon::parse($stats['last_updated']);
             $this->line("최근 수집: " . $lastCollection->format('Y-m-d H:i:s') . " ({$lastCollection->diffForHumans()})");
         }
     }

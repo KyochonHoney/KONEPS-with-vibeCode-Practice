@@ -10,6 +10,7 @@ use App\Services\AttachmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
@@ -150,7 +151,7 @@ class AttachmentController extends Controller
     /**
      * 개별 첨부파일 다운로드
      */
-    public function download(Attachment $attachment): Response
+    public function download(Attachment $attachment): BinaryFileResponse
     {
         if (!$attachment->is_downloaded) {
             abort(404, '파일을 찾을 수 없습니다.');
@@ -256,7 +257,7 @@ class AttachmentController extends Controller
     /**
      * 공고의 모든 HWP 변환 파일을 ZIP으로 다운로드
      */
-    public function downloadAllHwpAsZip(Tender $tender): Response
+    public function downloadAllHwpAsZip(Tender $tender): BinaryFileResponse
     {
         // 해당 공고의 완료된 첨부파일 조회
         $attachments = Attachment::where('tender_id', $tender->id)
@@ -316,7 +317,7 @@ class AttachmentController extends Controller
     /**
      * 개별 HWP 변환 파일 다운로드
      */
-    public function downloadHwpFile(Attachment $attachment): Response
+    public function downloadHwpFile(Attachment $attachment): BinaryFileResponse
     {
         // HWP로 변환된 파일만 다운로드 허용
         if ($attachment->file_type !== 'hwp' || $attachment->download_status !== 'completed') {

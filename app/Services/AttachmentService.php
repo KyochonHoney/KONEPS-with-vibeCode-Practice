@@ -42,7 +42,7 @@ class AttachmentService
     }
 
     /**
-     * API에서 첨부파일 정보 추출 (Mock 데이터 기반)
+     * API에서 첨부파일 정보 추출 (Tender accessor 기반)
      * 
      * @param Tender $tender 입찰공고
      * @return array 첨부파일 정보 배열
@@ -50,40 +50,31 @@ class AttachmentService
     public function extractAttachmentsFromTender(Tender $tender): array
     {
         $attachments = [];
-        $metadata = $tender->metadata;
         
-        // metadata가 문자열인 경우 배열로 변환
-        if (is_string($metadata)) {
-            $metadata = json_decode($metadata, true);
-        }
+        // 1. Tender 모델의 attachment_files accessor 사용
+        $tenderAttachments = $tender->attachment_files;
         
-        if (!is_array($metadata)) {
-            // 메타데이터가 없으면 바로 Mock 데이터 생성
-            return $this->generateMockAttachments($tender);
-        }
-
-        // 메타데이터에서 첨부파일 관련 정보 검색
-        $fileFields = $this->findFileFields($metadata);
-        
-        foreach ($fileFields as $field => $value) {
-            if (is_array($value)) {
-                // 배열 형태의 첨부파일 정보
-                foreach ($value as $fileInfo) {
-                    $attachment = $this->parseAttachmentInfo($fileInfo, $tender);
-                    if ($attachment) {
-                        $attachments[] = $attachment;
+        if (!empty($tenderAttachments)) {
+            foreach ($tenderAttachments as $fileInfo) {
+                if (!empty($fileInfo['url']) && !empty($fileInfo['name'])) {
+                    $extension = pathinfo($fileInfo['name'], PATHINFO_EXTENSION);
+                    if (empty($extension) || strlen($extension) > 10) {
+                        $extension = 'unknown';
                     }
-                }
-            } else {
-                // 단일 파일 정보
-                $attachment = $this->parseAttachmentInfo($value, $tender);
-                if ($attachment) {
-                    $attachments[] = $attachment;
+                    
+                    $attachments[] = [
+                        'original_name' => $fileInfo['name'],
+                        'file_url' => $fileInfo['url'],
+                        'file_name' => $this->generateFileName($tender->tender_no, $fileInfo['name']),
+                        'file_type' => strtolower($extension),
+                        'file_size' => null,
+                        'mime_type' => $this->guessMimeType($extension),
+                    ];
                 }
             }
         }
-
-        // 공고번호 기반 Mock 첨부파일 생성 (실제 API 연동 전까지)
+        
+        // 2. attachment_files가 비어있으면 Mock 데이터 생성
         if (empty($attachments)) {
             $attachments = $this->generateMockAttachments($tender);
         }
@@ -383,22 +374,39 @@ class AttachmentService
         if (is_string($fileInfo)) {
             // URL 형태의 문자열인 경우
             if (filter_var($fileInfo, FILTER_VALIDATE_URL)) {
+                $parsedUrl = parse_url($fileInfo);
+                $fileName = basename($parsedUrl['path'] ?? '') ?: 'attachment_file';
+                
+                // 확장자 추출 시 안전하게 처리
+                $extension = pathinfo($fileName, PATHINFO_EXTENSION);
+                if (empty($extension) || strlen($extension) > 10) {
+                    $extension = 'unknown';
+                }
+                
                 return [
-                    'original_name' => basename(parse_url($fileInfo, PHP_URL_PATH)) ?: 'unknown_file',
+                    'original_name' => $fileName,
                     'file_url' => $fileInfo,
-                    'file_name' => $this->generateFileName($tender->tender_no, basename($fileInfo)),
-                    'file_type' => pathinfo($fileInfo, PATHINFO_EXTENSION),
+                    'file_name' => $this->generateFileName($tender->tender_no, $fileName),
+                    'file_type' => strtolower($extension),
                 ];
             }
         } elseif (is_array($fileInfo)) {
             // 배열 형태의 파일 정보
             if (isset($fileInfo['url']) || isset($fileInfo['file_url'])) {
                 $url = $fileInfo['url'] ?? $fileInfo['file_url'];
+                $fileName = $fileInfo['name'] ?? $fileInfo['file_name'] ?? basename(parse_url($url, PHP_URL_PATH)) ?? 'attachment_file';
+                
+                // 확장자 추출 시 안전하게 처리
+                $extension = $fileInfo['type'] ?? pathinfo($fileName, PATHINFO_EXTENSION);
+                if (empty($extension) || strlen($extension) > 10) {
+                    $extension = 'unknown';
+                }
+                
                 return [
-                    'original_name' => $fileInfo['name'] ?? $fileInfo['file_name'] ?? basename($url),
+                    'original_name' => $fileName,
                     'file_url' => $url,
-                    'file_name' => $this->generateFileName($tender->tender_no, $fileInfo['name'] ?? basename($url)),
-                    'file_type' => $fileInfo['type'] ?? pathinfo($url, PATHINFO_EXTENSION),
+                    'file_name' => $this->generateFileName($tender->tender_no, $fileName),
+                    'file_type' => strtolower($extension),
                     'file_size' => $fileInfo['size'] ?? null,
                     'mime_type' => $fileInfo['mime_type'] ?? null,
                 ];
@@ -489,6 +497,35 @@ class AttachmentService
         
         return in_array($extension, self::HWP_EXTENSIONS) ||
                ($mimeType && in_array($mimeType, self::HWP_MIME_TYPES));
+    }
+
+    /**
+     * 파일 확장자로 MIME 타입 추정
+     * 
+     * @param string $extension 파일 확장자
+     * @return string|null MIME 타입
+     */
+    private function guessMimeType(string $extension): ?string
+    {
+        return match(strtolower($extension)) {
+            'hwp' => 'application/x-hwp',
+            'hwpx' => 'application/vnd.hancom.hwp',
+            'pdf' => 'application/pdf',
+            'doc' => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls' => 'application/vnd.ms-excel',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'ppt' => 'application/vnd.ms-powerpoint',
+            'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'txt' => 'text/plain',
+            'html', 'htm' => 'text/html',
+            'zip' => 'application/zip',
+            'rar' => 'application/x-rar-compressed',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            default => null
+        };
     }
 
     /**

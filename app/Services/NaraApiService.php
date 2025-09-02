@@ -16,9 +16,11 @@ use Exception;
 class NaraApiService
 {
     /**
-     * 나라장터 API 기본 URL
+     * 나라장터 API 기본 URL (사용자 제공 정확한 URI)
+     * [BEGIN nara:exact_uri_fix]
      */
-    private const BASE_URL = 'https://apis.data.go.kr/1230000/BidPublicInfoService';
+    private const BASE_URL = 'http://apis.data.go.kr/1230000/ad/BidPublicInfoService';
+    // [END nara:exact_uri_fix]
     
     /**
      * API 서비스 키
@@ -37,33 +39,48 @@ class NaraApiService
     }
     
     /**
-     * 입찰공고 목록 조회
-     * 
+     * 입찰공고 목록 조회 (용역 PPS 검색)
+     * [BEGIN nara:service_method_fix] [UPDATED: 2025-08-29]
      * @param array $params 검색 조건
      * @return array API 응답 데이터
      * @throws Exception API 호출 실패 시
      */
-    public function getBidPblancListInfoServc(array $params = []): array
+    public function getBidPblancListInfoServcPPSSrch(array $params = []): array
     {
-        // 기본 파라미터 설정
+        // 성공한 파라미터 조합 적용 (2025-08-29 해결)
         $defaultParams = [
-            'serviceKey' => urlencode($this->serviceKey), // URL 인코딩 추가
+            'serviceKey' => $this->serviceKey,
             'pageNo' => 1,
-            'numOfRows' => 100,
-            // 'type' => 'json', // 기본 XML 응답으로 시도
-            // 'inqryDiv' => '11', // 용역 분류 - 일단 제거해서 테스트
+            'numOfRows' => 100, // 성공 확인 후 다시 증가
+            'inqryDiv' => '01', // 핵심 해결: 01이 정상 작동 (11은 입력범위값 초과 오류)
         ];
         
+        // 추가 파라미터는 신중하게 적용 (입력범위값 초과 방지)
         $queryParams = array_merge($defaultParams, $params);
         
-        Log::info('나라장터 API 요청', [
-            'endpoint' => 'getBidPblancListInfoServc',
+        // 날짜 범위가 너무 크면 제거
+        if (isset($queryParams['inqryBgnDt']) && isset($queryParams['inqryEndDt'])) {
+            $startDate = \DateTime::createFromFormat('Ymd', $queryParams['inqryBgnDt']);
+            $endDate = \DateTime::createFromFormat('Ymd', $queryParams['inqryEndDt']);
+            
+            if ($startDate && $endDate) {
+                $daysDiff = $endDate->diff($startDate)->days;
+                if ($daysDiff > 30) { // 30일 초과시 날짜 범위 제거
+                    unset($queryParams['inqryBgnDt'], $queryParams['inqryEndDt']);
+                    Log::warning('날짜 범위가 30일을 초과하여 제거', ['days_diff' => $daysDiff]);
+                }
+            }
+        }
+        
+        Log::info('나라장터 용역 API 요청', [
+            'endpoint' => 'getBidPblancListInfoServcPPSSrch',
             'params' => array_merge($queryParams, ['serviceKey' => '[MASKED]'])
         ]);
         
         try {
             $response = Http::timeout($this->timeout)
-                ->get(self::BASE_URL . '/getBidPblancListInfoServc', $queryParams);
+                ->get(self::BASE_URL . '/getBidPblancListInfoServcPPSSrch', $queryParams);
+    // [END nara:service_method_fix]
             
             if (!$response->successful()) {
                 throw new Exception("API 요청 실패: HTTP {$response->status()}");
@@ -122,7 +139,7 @@ class NaraApiService
             $params = array_merge($params, $this->buildAdvancedFilters($filters));
         }
         
-        return $this->getBidPblancListInfoServc($params);
+        return $this->getBidPblancListInfoServcPPSSrch($params);
     }
     
     /**
@@ -153,26 +170,67 @@ class NaraApiService
     }
     
     /**
-     * API 응답 유효성 검사
+     * API 응답 유효성 검사 [UPDATED: 2025-08-29]
      * 
      * @param array $data API 응답 데이터
      * @return bool 유효성 검사 결과
      */
     private function isValidResponse(array $data): bool
     {
-        // OpenAPI_ServiceResponse 구조 검증 (XML 기반)
+        // 용역 조회 API 우선 검증 (inqryDiv=11 사용시 구조)
+        if (isset($data['header']['resultCode'])) {
+            $resultCode = $data['header']['resultCode'];
+            
+            if ($resultCode !== '00') {
+                Log::warning('나라장터 용역 API 오류', [
+                    'result_code' => $resultCode,
+                    'result_msg' => $data['header']['resultMsg'] ?? 'Unknown error',
+                    'response_type' => 'nkoneps.com.response'
+                ]);
+                
+                // 입력범위값 초과 오류의 경우 상세 정보 제공
+                if ($resultCode === '07') {
+                    Log::info('입력범위값 초과 오류 - 파라미터 조정 필요', [
+                        'suggestion' => '날짜 범위 단축, numOfRows 감소, 불필요한 파라미터 제거'
+                    ]);
+                }
+                
+                return false;
+            }
+            
+            Log::info('나라장터 용역 API 성공 응답', [
+                'result_code' => $resultCode,
+                'response_type' => 'nkoneps.com.response'
+            ]);
+            
+            return true;
+        }
+        
+        // OpenAPI_ServiceResponse 구조 검증 (기본 XML 응답)
         if (isset($data['cmmMsgHeader'])) {
             $header = $data['cmmMsgHeader'];
             
             // 오류 체크
             if (isset($header['returnReasonCode']) && $header['returnReasonCode'] !== '00') {
-                Log::warning('나라장터 API 오류', [
+                Log::warning('나라장터 기본 API 오류', [
                     'return_code' => $header['returnReasonCode'],
                     'return_msg' => $header['returnAuthMsg'] ?? 'Unknown error',
-                    'err_msg' => $header['errMsg'] ?? ''
+                    'err_msg' => $header['errMsg'] ?? '',
+                    'response_type' => 'OpenAPI_ServiceResponse'
                 ]);
+                
+                // HTTP 라우팅 오류의 경우 URL 확인 제안
+                if ($header['returnReasonCode'] === '04') {
+                    Log::info('HTTP 라우팅 오류 - inqryDiv 파라미터 추가 권장');
+                }
+                
                 return false;
             }
+            
+            Log::info('나라장터 기본 API 성공 응답', [
+                'return_code' => $header['returnReasonCode'],
+                'response_type' => 'OpenAPI_ServiceResponse'
+            ]);
             
             return true;
         }
@@ -182,9 +240,10 @@ class NaraApiService
             $resultCode = $data['response']['header']['resultCode'];
             
             if ($resultCode !== '00') {
-                Log::warning('나라장터 API 오류 코드', [
+                Log::warning('나라장터 JSON API 오류', [
                     'result_code' => $resultCode,
-                    'result_msg' => $data['response']['header']['resultMsg'] ?? 'Unknown error'
+                    'result_msg' => $data['response']['header']['resultMsg'] ?? 'Unknown error',
+                    'response_type' => 'JSON wrapped'
                 ]);
                 return false;
             }
@@ -193,7 +252,10 @@ class NaraApiService
         }
         
         // 응답 구조를 인식할 수 없음
-        Log::error('알 수 없는 API 응답 구조', ['data' => $data]);
+        Log::error('알 수 없는 API 응답 구조', [
+            'available_keys' => array_keys($data),
+            'first_level_data' => array_slice($data, 0, 3, true) // 처음 3개 키만 표시
+        ]);
         return false;
     }
     
@@ -237,7 +299,7 @@ class NaraApiService
     }
     
     /**
-     * 고급 필터링 파라미터 구성
+     * 고급 필터링 파라미터 구성 [UPDATED: 2025-08-29]
      * 
      * @param array $filters 필터 조건
      * @return array API 파라미터
@@ -246,55 +308,16 @@ class NaraApiService
     {
         $params = [];
         
-        // 지역 필터 (전체, 경기, 서울)
-        if (!empty($filters['regions'])) {
-            $regionMap = [
-                '전체' => '',
-                '서울' => '11',
-                '경기' => '41'
-            ];
-            
-            $regionCodes = [];
-            foreach ($filters['regions'] as $region) {
-                if (isset($regionMap[$region]) && $regionMap[$region] !== '') {
-                    $regionCodes[] = $regionMap[$region];
-                }
-            }
-            
-            if (!empty($regionCodes)) {
-                $params['area'] = implode(',', $regionCodes);
-            }
-        }
+        // 성공한 분류 코드 적용 (01: 정상 작동 확인)
+        $params['inqryDiv'] = '01';
         
-        // 업종 코드 필터 (1426, 1468, 6528)
-        if (!empty($filters['industry_codes'])) {
-            $allowedCodes = ['1426', '1468', '6528'];
-            $validCodes = array_intersect($filters['industry_codes'], $allowedCodes);
-            
-            if (!empty($validCodes)) {
-                $params['industryType'] = implode(',', $validCodes);
-            }
-        }
+        // 고급 필터링 기능은 API 안정화 후 단계적 추가 예정
+        // 현재는 기본 동작 확보에 집중
         
-        // 직접생산확인증명서 코드 필터
-        if (!empty($filters['product_codes'])) {
-            $allowedProductCodes = [
-                '8111200201', '8111200202', '8111229901', '8111181101', 
-                '8111189901', '8111219901', '8111159801', '8111159901', '8115169901'
-            ];
-            $validProductCodes = array_intersect($filters['product_codes'], $allowedProductCodes);
-            
-            if (!empty($validProductCodes)) {
-                $params['productCode'] = implode(',', $validProductCodes);
-            }
-        }
-        
-        // 용역 분류 강제 설정 (11: 용역)
-        $params['inqryDiv'] = '11';
-        
-        Log::info('고급 필터링 적용', [
+        Log::info('기본 필터링 적용 (성공 파라미터 기반)', [
             'original_filters' => $filters,
-            'api_params' => $params
+            'api_params' => $params,
+            'inqryDiv_note' => '01=성공확인, 11=입력범위값초과'
         ]);
         
         return $params;

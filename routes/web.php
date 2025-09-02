@@ -3,6 +3,8 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\TenderController;
 use App\Http\Controllers\Admin\AttachmentController;
+use App\Http\Controllers\Admin\AnalysisController;
+use App\Http\Controllers\ProposalController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -65,6 +67,31 @@ Route::middleware('auth')->group(function () {
             Route::delete('/{attachment}', [AttachmentController::class, 'destroy'])->name('destroy');
             Route::post('/bulk-download', [AttachmentController::class, 'bulkDownload'])->name('bulk_download');
             Route::get('/stats', [AttachmentController::class, 'stats'])->name('stats');
+        });
+        
+        // AI 분석 관리
+        Route::prefix('admin/analyses')->name('admin.analyses.')->group(function () {
+            Route::get('/', [AnalysisController::class, 'index'])->name('index');
+            Route::get('/{analysis}', [AnalysisController::class, 'show'])->name('show');
+            Route::post('/analyze/{tender}', [AnalysisController::class, 'analyze'])->name('analyze');
+            Route::post('/bulk-analyze', [AnalysisController::class, 'bulkAnalyze'])->name('bulk_analyze');
+            Route::delete('/{analysis}', [AnalysisController::class, 'destroy'])->name('destroy');
+            Route::get('/api/stats', [AnalysisController::class, 'stats'])->name('stats');
+            Route::post('/api/check-status', [AnalysisController::class, 'checkAnalysisStatus'])->name('check_status');
+        });
+        
+        // AI 제안서 관리
+        Route::prefix('admin/proposals')->name('admin.proposals.')->group(function () {
+            Route::get('/', [ProposalController::class, 'index'])->name('index');
+            Route::get('/create', [ProposalController::class, 'create'])->name('create');
+            Route::post('/', [ProposalController::class, 'store'])->name('store');
+            Route::get('/{proposal}', [ProposalController::class, 'show'])->name('show');
+            Route::post('/{proposal}/regenerate', [ProposalController::class, 'regenerate'])->name('regenerate');
+            Route::get('/{proposal}/download', [ProposalController::class, 'download'])->name('download');
+            Route::delete('/{proposal}', [ProposalController::class, 'destroy'])->name('destroy');
+            Route::post('/bulk-generate', [ProposalController::class, 'bulkGenerate'])->name('bulk-generate');
+            Route::get('/{proposal}/preview', [ProposalController::class, 'preview'])->name('preview');
+            Route::get('/{proposal}/status', [ProposalController::class, 'status'])->name('status');
         });
     });
 });

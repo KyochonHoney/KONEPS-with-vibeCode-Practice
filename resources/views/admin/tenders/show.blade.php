@@ -1,4 +1,4 @@
-{{-- [BEGIN nara:admin_tenders_show] --}}
+{{-- [BEGIN nara:admin_tenders_show_enhanced] --}}
 @extends('layouts.app')
 
 @section('title', '입찰공고 상세 - ' . $tender->title)
@@ -25,95 +25,298 @@
                         <i class="bi bi-arrow-left me-1"></i>
                         목록으로
                     </a>
-                    @if($tender->source_url && $tender->source_url !== '#')
-                        <a href="{{ $tender->source_url }}" target="_blank" class="btn btn-primary">
-                            <i class="bi bi-box-arrow-up-right me-1"></i>
-                            원본 보기
-                        </a>
-                    @elseif($tender->tender_no)
+                    @if($tender->detail_url && $tender->detail_url !== '#')
                         <a href="{{ $tender->detail_url }}" target="_blank" class="btn btn-primary">
                             <i class="bi bi-box-arrow-up-right me-1"></i>
-                            원본 보기
+                            나라장터 원본 보기
                         </a>
                     @endif
                 </div>
             </div>
 
             <div class="row">
-                <!-- 기본 정보 -->
+                <!-- 좌측 컬럼 -->
                 <div class="col-lg-8">
+                    <!-- 기본 정보 -->
                     <div class="card shadow mb-4">
                         <div class="card-header py-3">
-                            <h6 class="m-0 font-weight-bold text-primary">기본 정보</h6>
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-info-circle me-2"></i>기본 정보
+                            </h6>
                         </div>
                         <div class="card-body">
                             <div class="row mb-3">
-                                <div class="col-sm-3">
-                                    <strong>공고번호:</strong>
-                                </div>
+                                <div class="col-sm-3"><strong>공고번호:</strong></div>
                                 <div class="col-sm-9">
-                                    {{ $tender->tender_no }}
+                                    <span class="badge bg-info fs-6">{{ $tender->tender_no }}</span>
                                 </div>
                             </div>
                             
                             <div class="row mb-3">
-                                <div class="col-sm-3">
-                                    <strong>제목:</strong>
-                                </div>
+                                <div class="col-sm-3"><strong>제목:</strong></div>
                                 <div class="col-sm-9">
-                                    <h5 class="text-primary">{{ $tender->title }}</h5>
+                                    <h5 class="text-primary mb-0">{{ $tender->title }}</h5>
                                 </div>
                             </div>
                             
                             <div class="row mb-3">
-                                <div class="col-sm-3">
-                                    <strong>내용:</strong>
+                                <div class="col-sm-3"><strong>수요기관:</strong></div>
+                                <div class="col-sm-9">
+                                    <span class="badge bg-primary">{{ $tender->agency }}</span>
                                 </div>
+                            </div>
+                            
+                            @if($tender->ntce_kind_nm)
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>공고종류:</strong></div>
+                                <div class="col-sm-9">
+                                    @php
+                                        $noticeType = $tender->safeExtractString($tender->ntce_kind_nm);
+                                        $badgeClass = 'bg-secondary';
+                                        if (strpos($noticeType, '재공고') !== false) {
+                                            $badgeClass = 'bg-danger text-white';
+                                        } elseif (strpos($noticeType, '변경공고') !== false) {
+                                            $badgeClass = 'bg-success text-white';
+                                        }
+                                    @endphp
+                                    <span class="badge {{ $badgeClass }}">{{ $noticeType }}</span>
+                                </div>
+                            </div>
+                            @endif
+                            
+                            @if($tender->classification_info['code'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>업종코드:</strong></div>
+                                <div class="col-sm-9">
+                                    <code class="bg-light p-1 rounded">{{ $tender->classification_info['code'] }}</code>
+                                </div>
+                            </div>
+                            @endif
+                            
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>수요기관 담당자:</strong></div>
+                                <div class="col-sm-9">{{ $tender->exctv_nm ?: '미지정' }}</div>
+                            </div>
+                            
+                            @if($tender->content)
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>공고내용:</strong></div>
                                 <div class="col-sm-9">
                                     <div class="border rounded p-3 bg-light">
                                         {!! nl2br(e($tender->content)) !!}
                                     </div>
                                 </div>
                             </div>
-                            
+                            @endif
+                        </div>
+                    </div>
+
+                    <!-- 분류 정보 -->
+                    @if($tender->classification_info['large'] || $tender->classification_info['middle'])
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-tags me-2"></i>분류 정보
+                            </h6>
+                        </div>
+                        <div class="card-body">
                             <div class="row mb-3">
-                                <div class="col-sm-3">
-                                    <strong>발주기관:</strong>
-                                </div>
+                                <div class="col-sm-3"><strong>대분류:</strong></div>
                                 <div class="col-sm-9">
-                                    <span class="badge bg-primary text-white">{{ $tender->agency }}</span>
+                                    <span class="badge bg-success">{{ $tender->classification_info['large'] ?: '미분류' }}</span>
                                 </div>
                             </div>
-                            
+                            @if($tender->classification_info['middle'])
                             <div class="row mb-3">
-                                <div class="col-sm-3">
-                                    <strong>분류:</strong>
-                                </div>
+                                <div class="col-sm-3"><strong>중분류:</strong></div>
                                 <div class="col-sm-9">
-                                    <span class="badge bg-success text-white">
-                                        {{ $tender->category->name ?? '미분류' }}
+                                    <span class="badge bg-info">{{ $tender->classification_info['middle'] }}</span>
+                                </div>
+                            </div>
+                            @endif
+                            @if($tender->classification_info['detail'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>세부분류:</strong></div>
+                                <div class="col-sm-9">{{ $tender->classification_info['detail'] }}</div>
+                            </div>
+                            @endif
+                            @if($tender->classification_info['code'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>분류코드:</strong></div>
+                                <div class="col-sm-9">
+                                    <code>{{ $tender->classification_info['code'] }}</code>
+                                </div>
+                            </div>
+                            @endif
+                        </div>
+                    </div>
+                    @endif
+
+                    <!-- 입찰 방식 및 계약 정보 -->
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-gear me-2"></i>입찰 방식 및 계약 정보
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>입찰방법:</strong></div>
+                                <div class="col-sm-9">
+                                    <span class="badge bg-warning text-dark">{{ $tender->bid_method_info['bid_method'] ?: '미지정' }}</span>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>계약방법:</strong></div>
+                                <div class="col-sm-9">
+                                    <span class="badge bg-secondary">{{ $tender->bid_method_info['contract_method'] ?: '미지정' }}</span>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>입찰구분:</strong></div>
+                                <div class="col-sm-9">
+                                    <span class="badge {{ $tender->intrbid_yn === 'Y' ? 'bg-danger' : 'bg-success' }}">
+                                        {{ $tender->bid_method_info['international'] }}
                                     </span>
                                 </div>
                             </div>
-                            
                             <div class="row mb-3">
-                                <div class="col-sm-3">
-                                    <strong>지역:</strong>
-                                </div>
+                                <div class="col-sm-3"><strong>재입찰여부:</strong></div>
                                 <div class="col-sm-9">
-                                    {{ $tender->region ?? '전국' }}
+                                    <span class="badge {{ $tender->rbid_permsn_yn === 'Y' ? 'bg-info' : 'bg-dark' }}">
+                                        {{ $tender->bid_method_info['rebid_allowed'] }}
+                                    </span>
                                 </div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- 입찰 일정 -->
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-calendar-event me-2"></i>입찰 일정
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            @php $schedule = $tender->formatted_bid_schedule @endphp
+                            
+                            @if($schedule['bid_begin'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>입찰시작:</strong></div>
+                                <div class="col-sm-9">
+                                    <i class="bi bi-play-circle text-success me-2"></i>{{ $schedule['bid_begin'] }}
+                                </div>
+                            </div>
+                            @endif
+                            
+                            @if($schedule['bid_close'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>입찰마감:</strong></div>
+                                <div class="col-sm-9">
+                                    <i class="bi bi-stop-circle text-danger me-2"></i>{{ $schedule['bid_close'] }}
+                                    @if($tender->days_remaining !== null)
+                                        <span class="badge {{ $tender->days_remaining <= 3 ? 'bg-danger' : 'bg-warning' }} ms-2">
+                                            D-{{ $tender->days_remaining }}
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+                            @endif
+                            
+                            @if($schedule['opening'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>개찰일시:</strong></div>
+                                <div class="col-sm-9">
+                                    <i class="bi bi-unlock text-primary me-2"></i>{{ $schedule['opening'] }}
+                                </div>
+                            </div>
+                            @endif
+                            
+                            @if($schedule['rebid_opening'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>재입찰개찰:</strong></div>
+                                <div class="col-sm-9">
+                                    <i class="bi bi-arrow-repeat text-info me-2"></i>{{ $schedule['rebid_opening'] }}
+                                </div>
+                            </div>
+                            @endif
+                        </div>
+                    </div>
+
+                    <!-- 수요기관 담당자 정보 -->
+                    @if($tender->official_info['name'])
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-person-badge me-2"></i>수요기관 담당자 정보
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>수요기관 담당자:</strong></div>
+                                <div class="col-sm-9">
+                                    <i class="bi bi-person me-2"></i>{{ $tender->official_info['name'] }}
+                                </div>
+                            </div>
+                            @if($tender->official_info['phone'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>연락처:</strong></div>
+                                <div class="col-sm-9">
+                                    <i class="bi bi-telephone me-2"></i>
+                                    <a href="tel:{{ $tender->official_info['phone'] }}">{{ $tender->official_info['phone'] }}</a>
+                                </div>
+                            </div>
+                            @endif
+                            @if($tender->official_info['email'])
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>이메일:</strong></div>
+                                <div class="col-sm-9">
+                                    <i class="bi bi-envelope me-2"></i>
+                                    <a href="mailto:{{ $tender->official_info['email'] }}">{{ $tender->official_info['email'] }}</a>
+                                </div>
+                            </div>
+                            @endif
+                        </div>
+                    </div>
+                    @endif
+
+                    <!-- 첨부파일 정보 (API에서 제공) -->
+                    @if(count($tender->attachment_files) > 0)
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-paperclip me-2"></i>첨부파일 정보 ({{ count($tender->attachment_files) }}건)
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="list-group">
+                                @foreach($tender->attachment_files as $file)
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <i class="bi bi-file-earmark text-primary me-2"></i>
+                                        <strong>{{ $file['name'] }}</strong>
+                                        <small class="text-muted d-block">첨부파일 {{ $file['seq'] }}</small>
+                                    </div>
+                                    <a href="{{ $file['url'] }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-download me-1"></i>다운로드
+                                    </a>
+                                </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
+                    @endif
                 </div>
 
-                <!-- 상태 및 부가 정보 -->
+                <!-- 우측 컬럼 -->
                 <div class="col-lg-4">
                     <!-- 상태 정보 -->
                     <div class="card shadow mb-4">
                         <div class="card-header py-3">
-                            <h6 class="m-0 font-weight-bold text-primary">상태 정보</h6>
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-info-square me-2"></i>상태 정보
+                            </h6>
                         </div>
                         <div class="card-body">
                             <div class="mb-3">
@@ -123,23 +326,10 @@
                                 </span>
                             </div>
                             
-                            <div class="mb-3">
-                                <strong>예산:</strong><br>
-                                <span class="h5 text-success">
-                                    {{ $tender->formatted_budget }}
-                                    <small class="text-muted">({{ $tender->currency }})</small>
-                                </span>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <strong>공고 기간:</strong><br>
-                                <span class="text-muted">{{ $tender->period }}</span>
-                            </div>
-                            
                             @if($tender->days_remaining !== null)
                                 <div class="mb-3">
                                     <strong>남은 기간:</strong><br>
-                                    <span class="badge {{ $tender->days_remaining <= 3 ? 'bg-danger' : 'bg-warning' }}">
+                                    <span class="badge {{ $tender->days_remaining <= 3 ? 'bg-danger' : 'bg-warning' }} fs-6">
                                         D-{{ $tender->days_remaining }}
                                     </span>
                                 </div>
@@ -151,13 +341,91 @@
                                     {{ $tender->collected_at ? $tender->collected_at->format('Y-m-d H:i:s') : '알 수 없음' }}
                                 </small>
                             </div>
+
+                            @if($tender->registration_info['registered'])
+                            <div class="mb-3">
+                                <strong>등록일시:</strong><br>
+                                <small class="text-muted">{{ $tender->registration_info['registered'] }}</small>
+                            </div>
+                            @endif
+
+                            @if($tender->registration_info['changed'])
+                            <div class="mb-3">
+                                <strong>변경일시:</strong><br>
+                                <small class="text-muted">{{ $tender->registration_info['changed'] }}</small>
+                                @if($tender->registration_info['change_reason'])
+                                    <br><small class="text-danger">변경사유: {{ $tender->registration_info['change_reason'] }}</small>
+                                @endif
+                            </div>
+                            @endif
                         </div>
                     </div>
+
+                    <!-- 예산 정보 -->
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-currency-dollar me-2"></i>예산 정보
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            @php $budgetDetails = $tender->formatted_budget_details @endphp
+                            
+                            @if($budgetDetails['assign_budget'])
+                            <div class="mb-3">
+                                <strong>배정예산:</strong><br>
+                                <span class="h5 text-primary">{{ $budgetDetails['assign_budget'] }}</span>
+                            </div>
+                            @endif
+                            
+                            @if($budgetDetails['vat'])
+                            <div class="mb-3">
+                                <strong>부가세:</strong><br>
+                                <span class="h6 text-info">{{ $budgetDetails['vat'] }}</span>
+                            </div>
+                            @endif
+                            
+                            @if($budgetDetails['total'])
+                            <div class="mb-3">
+                                <strong>총 예산 (VAT 포함):</strong><br>
+                                <span class="h4 text-success">{{ $budgetDetails['total'] }}</span>
+                                <small class="text-muted d-block">({{ $tender->currency }})</small>
+                            </div>
+                            @endif
+
+                            @if(!$budgetDetails['assign_budget'] && $tender->formatted_budget !== '미공개')
+                            <div class="mb-3">
+                                <strong>예산:</strong><br>
+                                <span class="h5 text-success">{{ $tender->formatted_budget }}</span>
+                                <small class="text-muted d-block">({{ $tender->currency }})</small>
+                            </div>
+                            @endif
+                        </div>
+                    </div>
+
+                    <!-- 지역 정보 -->
+                    @if($tender->region)
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-geo-alt me-2"></i>지역 정보
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <strong>수행지역:</strong><br>
+                                <span class="badge bg-info fs-6">{{ $tender->region }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
 
                     <!-- 상태 변경 -->
                     <div class="card shadow mb-4">
                         <div class="card-header py-3">
-                            <h6 class="m-0 font-weight-bold text-primary">상태 변경</h6>
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-pencil-square me-2"></i>상태 변경
+                            </h6>
                         </div>
                         <div class="card-body">
                             <form id="statusUpdateForm">
@@ -180,7 +448,9 @@
                     <!-- 첨부파일 관리 -->
                     <div class="card shadow mb-4">
                         <div class="card-header py-3">
-                            <h6 class="m-0 font-weight-bold text-primary">첨부파일 관리</h6>
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-file-earmark-zip me-2"></i>첨부파일 관리
+                            </h6>
                         </div>
                         <div class="card-body">
                             <div class="d-grid gap-2">
@@ -192,59 +462,16 @@
                                     <i class="bi bi-file-earmark-text me-1"></i>
                                     모든 파일을 한글로 변환
                                 </button>
-                                <div class="btn-group" role="group">
-                                    <a href="{{ route('admin.attachments.download_hwp_zip', $tender) }}" 
-                                       class="btn btn-success" id="downloadHwpZipBtn">
-                                        <i class="bi bi-file-earmark-zip me-1"></i>
-                                        변환된 파일 ZIP 다운로드
-                                    </a>
-                                    <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" 
-                                            data-bs-toggle="dropdown" aria-expanded="false">
-                                        <span class="visually-hidden">Toggle Dropdown</span>
-                                    </button>
-                                    <ul class="dropdown-menu">
-                                        <li>
-                                            <a class="dropdown-item" href="{{ route('admin.attachments.download_hwp_zip', $tender) }}">
-                                                <i class="bi bi-file-earmark-zip me-1"></i>
-                                                모든 HWP 파일을 ZIP으로
-                                            </a>
-                                        </li>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <li>
-                                            <a class="dropdown-item" href="#" id="showIndividualFiles">
-                                                <i class="bi bi-files me-1"></i>
-                                                개별 파일 다운로드
-                                            </a>
-                                        </li>
-                                    </ul>
-                                </div>
-                                <button type="button" class="btn btn-outline-success" id="downloadHwpBtn">
-                                    <i class="bi bi-download me-1"></i>
-                                    기존 한글파일만 다운로드
-                                </button>
+                                <a href="{{ route('admin.attachments.download_hwp_zip', $tender) }}" 
+                                   class="btn btn-success" id="downloadHwpZipBtn">
+                                    <i class="bi bi-file-earmark-zip me-1"></i>
+                                    변환된 파일 ZIP 다운로드
+                                </a>
                                 <a href="{{ route('admin.attachments.index', ['tender_id' => $tender->id]) }}" 
                                    class="btn btn-outline-info">
                                     <i class="bi bi-files me-1"></i>
                                     첨부파일 목록 보기
                                 </a>
-                            </div>
-                            
-                            <!-- 첨부파일 상태 정보 -->
-                            <div class="mt-3 p-3 bg-light rounded" id="attachmentStatus" style="display: none;">
-                                <div class="row text-center">
-                                    <div class="col-4">
-                                        <div class="text-muted">전체</div>
-                                        <div class="h5 mb-0" id="totalFiles">-</div>
-                                    </div>
-                                    <div class="col-4">
-                                        <div class="text-muted">한글파일</div>
-                                        <div class="h5 mb-0 text-primary" id="hwpFiles">-</div>
-                                    </div>
-                                    <div class="col-4">
-                                        <div class="text-muted">다운로드됨</div>
-                                        <div class="h5 mb-0 text-success" id="downloadedFiles">-</div>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -252,7 +479,9 @@
                     <!-- 액션 버튼 -->
                     <div class="card shadow mb-4">
                         <div class="card-header py-3">
-                            <h6 class="m-0 font-weight-bold text-primary">작업</h6>
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-lightning me-2"></i>작업
+                            </h6>
                         </div>
                         <div class="card-body">
                             <div class="d-grid gap-2">
@@ -275,36 +504,13 @@
                 </div>
             </div>
 
-            <!-- 개별 파일 다운로드 모달 -->
-            <div class="modal fade" id="individualFilesModal" tabindex="-1" aria-labelledby="individualFilesModalLabel" aria-hidden="true">
-                <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="individualFilesModalLabel">개별 HWP 파일 다운로드</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div id="individualFilesList">
-                                <div class="text-center">
-                                    <div class="spinner-border" role="status">
-                                        <span class="visually-hidden">로딩 중...</span>
-                                    </div>
-                                    <div class="mt-2">변환된 파일 목록을 불러오는 중...</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- 메타데이터 (개발자용) -->
             @if($tender->metadata && auth()->user()->role === 'super_admin')
                 <div class="card shadow mb-4">
                     <div class="card-header py-3">
-                        <h6 class="m-0 font-weight-bold text-secondary">메타데이터 (개발자 전용)</h6>
+                        <h6 class="m-0 font-weight-bold text-secondary">
+                            <i class="bi bi-code-square me-2"></i>메타데이터 (개발자 전용)
+                        </h6>
                     </div>
                     <div class="card-body">
                         <div class="bg-light border rounded p-3">
@@ -320,12 +526,17 @@
 
 @push('styles')
 <style>
-/* 배지 스타일 개선 - 가독성 향상 */
+/* 향상된 배지 스타일 */
 .badge {
     font-size: 0.875rem;
     padding: 0.5rem 0.75rem;
     font-weight: 500;
     border-radius: 0.375rem;
+}
+
+.badge.fs-6 {
+    font-size: 1rem !important;
+    padding: 0.6rem 0.9rem;
 }
 
 .badge.bg-primary {
@@ -340,16 +551,10 @@
     border: 1px solid #1cc88a;
 }
 
-.badge.bg-dark {
-    background-color: #5a5c69 !important;
+.badge.bg-info {
+    background-color: #36b9cc !important;
     color: white !important;
-    border: 1px solid #5a5c69;
-}
-
-.badge.bg-danger {
-    background-color: #e74a3b !important;
-    color: white !important;
-    border: 1px solid #e74a3b;
+    border: 1px solid #36b9cc;
 }
 
 .badge.bg-warning {
@@ -358,7 +563,36 @@
     border: 1px solid #f6c23e;
 }
 
-/* 강조 텍스트 스타일 */
+.badge.bg-danger {
+    background-color: #e74a3b !important;
+    color: white !important;
+    border: 1px solid #e74a3b;
+}
+
+.badge.bg-dark {
+    background-color: #5a5c69 !important;
+    color: white !important;
+    border: 1px solid #5a5c69;
+}
+
+.badge.bg-secondary {
+    background-color: #858796 !important;
+    color: white !important;
+    border: 1px solid #858796;
+}
+
+/* 카드 헤더 스타일 */
+.card-header {
+    background-color: #f8f9fc;
+    border-bottom: 1px solid #e3e6f0;
+}
+
+.card-header h6 {
+    color: #4e73df;
+    font-weight: 600;
+}
+
+/* 텍스트 색상 */
 .text-primary {
     color: #4e73df !important;
 }
@@ -367,10 +601,31 @@
     color: #1cc88a !important;
 }
 
-/* 카드 헤더 스타일 */
-.card-header {
+.text-info {
+    color: #36b9cc !important;
+}
+
+/* 리스트 그룹 개선 */
+.list-group-item {
+    border: 1px solid #e3e6f0;
+    padding: 1rem;
+}
+
+.list-group-item:hover {
     background-color: #f8f9fc;
-    border-bottom: 1px solid #e3e6f0;
+}
+
+/* 반응형 개선 */
+@media (max-width: 768px) {
+    .col-sm-3 {
+        margin-bottom: 0.5rem;
+        font-weight: bold;
+    }
+    
+    .badge.fs-6 {
+        font-size: 0.875rem !important;
+        padding: 0.4rem 0.6rem;
+    }
 }
 </style>
 @endpush
@@ -405,14 +660,133 @@ $(document).ready(function() {
         });
     });
 
-    // AI 분석 실행 (placeholder)
+    // AI 분석 실행
     $('#analyzeBtn').click(function() {
-        alert('AI 분석 기능은 Phase 3에서 구현됩니다.');
+        const $btn = $(this);
+        const $icon = $btn.find('i');
+        const originalText = $btn.html();
+        
+        // 버튼 상태 변경
+        $btn.prop('disabled', true);
+        $icon.removeClass('bi-cpu').addClass('bi-arrow-clockwise');
+        $btn.html('<i class="bi bi-arrow-clockwise me-1"></i>AI 분석 중...');
+        
+        $.ajax({
+            url: '{{ route("admin.analyses.analyze", $tender) }}',
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(response) {
+                if (response.success) {
+                    // 성공 메시지 표시
+                    showAlert('success', response.message);
+                    
+                    // 분석 결과 표시
+                    if (response.analysis) {
+                        showAnalysisResult(response.analysis);
+                    }
+                    
+                    // 상세 페이지로 이동 (선택사항)
+                    if (response.redirect_url && !response.is_cached) {
+                        setTimeout(() => {
+                            window.open(response.redirect_url, '_blank');
+                        }, 2000);
+                    }
+                } else {
+                    showAlert('danger', response.message || 'AI 분석에 실패했습니다.');
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showAlert('danger', response?.message || 'AI 분석 중 오류가 발생했습니다.');
+                console.error('AI Analysis Error:', xhr);
+            },
+            complete: function() {
+                // 버튼 상태 복원
+                setTimeout(() => {
+                    $btn.prop('disabled', false);
+                    $btn.html(originalText);
+                }, 1000);
+            }
+        });
     });
+    
+    // 분석 결과 표시 함수
+    function showAnalysisResult(analysis) {
+        const scoreClass = getScoreColorClass(analysis.total_score);
+        const recommendation = getRecommendationText(analysis.total_score);
+        
+        const resultHtml = `
+            <div class="alert alert-info mt-3" id="analysisResult">
+                <h6><i class="bi bi-cpu me-2"></i>AI 분석 결과</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>총점:</strong> <span class="${scoreClass}">${analysis.total_score}점</span> (100점 만점)</p>
+                        <p class="mb-1"><strong>추천도:</strong> ${recommendation}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>기술적 적합성:</strong> ${analysis.technical_score}점 (40점 만점)</p>
+                        <p class="mb-1"><strong>사업 영역 적합성:</strong> ${analysis.experience_score}점 (25점 만점)</p>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="/admin/analyses/${analysis.id}" target="_blank" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-eye me-1"></i>상세 분석 결과 보기
+                    </a>
+                </div>
+            </div>
+        `;
+        
+        // 기존 결과 제거 후 새 결과 표시
+        $('#analysisResult').remove();
+        $('#analyzeBtn').closest('.card-body').append(resultHtml);
+    }
+    
+    // 점수별 색상 클래스 반환
+    function getScoreColorClass(score) {
+        if (score >= 80) return 'text-success fw-bold';
+        if (score >= 60) return 'text-info fw-bold';
+        if (score >= 40) return 'text-warning fw-bold';
+        return 'text-danger fw-bold';
+    }
+    
+    // 추천도 텍스트 반환
+    function getRecommendationText(score) {
+        if (score >= 80) return '<span class="text-success">적극 추천</span>';
+        if (score >= 60) return '<span class="text-info">추천</span>';
+        if (score >= 40) return '<span class="text-warning">검토 권장</span>';
+        return '<span class="text-danger">비추천</span>';
+    }
+    
+    // 알림 메시지 표시 함수
+    function showAlert(type, message) {
+        const alertClass = `alert alert-${type} alert-dismissible fade show`;
+        const alertHtml = `
+            <div class="${alertClass}" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        // 기존 알림 제거
+        $('.alert').remove();
+        
+        // 새 알림 추가
+        $('.container-fluid').prepend(alertHtml);
+        
+        // 5초 후 자동 제거
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 5000);
+    }
 
-    // 제안서 생성 (placeholder)
+    // 제안서 생성
     $('#generateProposalBtn').click(function() {
-        alert('제안서 생성 기능은 Phase 4에서 구현됩니다.');
+        if (confirm('이 공고에 대한 AI 제안서를 생성하시겠습니까?\n\n처리 시간: 약 30초 - 2분')) {
+            // 제안서 생성 페이지로 이동
+            window.location.href = '{{ route("admin.proposals.create") }}?tender_id={{ $tender->id }}';
+        }
     });
 
     // 첨부파일 정보 수집
@@ -430,7 +804,6 @@ $(document).ready(function() {
             },
             success: function(response) {
                 alert(response.message);
-                updateAttachmentStats();
             },
             error: function(xhr) {
                 const response = xhr.responseJSON;
@@ -444,14 +817,14 @@ $(document).ready(function() {
 
     // 모든 파일을 한글로 변환
     $('#downloadAllAsHwpBtn').click(function() {
-        if (!confirm('모든 첨부파일을 한글(.hwp) 형식으로 변환하시겠습니까?\n\nPDF, Word, Excel 등의 파일들이 모두 한글 형식으로 변환됩니다.\n변환 후 "변환된 파일 ZIP 다운로드" 버튼으로 실제 다운로드할 수 있습니다.')) {
+        if (!confirm('모든 첨부파일을 한글(.hwp) 형식으로 변환하시겠습니까?\\n\\nPDF, Word, Excel 등의 파일들이 모두 한글 형식으로 변환됩니다.')) {
             return;
         }
         
         const $btn = $(this);
         const originalText = $btn.html();
         
-        $btn.prop('disabled', true).html('<i class="spinner-border spinner-border-sm me-1"></i>변환 및 다운로드 중...');
+        $btn.prop('disabled', true).html('<i class="spinner-border spinner-border-sm me-1"></i>변환 중...');
         
         $.ajax({
             url: '{{ route("admin.attachments.download_all_as_hwp", $tender) }}',
@@ -461,118 +834,20 @@ $(document).ready(function() {
             },
             success: function(response) {
                 alert(response.message);
-                updateAttachmentStats();
             },
             error: function(xhr) {
                 const response = xhr.responseJSON;
-                alert(response ? response.message : '파일 변환 및 다운로드 실패');
+                alert(response ? response.message : '파일 변환 실패');
             },
             complete: function() {
                 $btn.prop('disabled', false).html(originalText);
             }
         });
     });
-
-    // 한글파일만 다운로드 (기존 기능)
-    $('#downloadHwpBtn').click(function() {
-        const $btn = $(this);
-        const originalText = $btn.html();
-        
-        $btn.prop('disabled', true).html('<i class="spinner-border spinner-border-sm me-1"></i>다운로드 중...');
-        
-        $.ajax({
-            url: '{{ route("admin.attachments.download_hwp", $tender) }}',
-            method: 'POST',
-            data: {
-                _token: '{{ csrf_token() }}'
-            },
-            success: function(response) {
-                alert(response.message);
-                updateAttachmentStats();
-            },
-            error: function(xhr) {
-                const response = xhr.responseJSON;
-                alert(response ? response.message : '한글파일 다운로드 실패');
-            },
-            complete: function() {
-                $btn.prop('disabled', false).html(originalText);
-            }
-        });
-    });
-
-    // 첨부파일 통계 업데이트
-    function updateAttachmentStats() {
-        $.get('{{ route("admin.attachments.stats") }}', function(stats) {
-            $('#totalFiles').text(stats.total_files || 0);
-            $('#hwpFiles').text(stats.hwp_files || 0);
-            $('#downloadedFiles').text(stats.downloaded_hwp_files || 0);
-            $('#attachmentStatus').show();
-        });
-    }
-
-    // 개별 파일 다운로드 모달
-    $('#showIndividualFiles').click(function(e) {
-        e.preventDefault();
-        $('#individualFilesModal').modal('show');
-        loadIndividualFilesList();
-    });
-
-    // 개별 파일 목록 로드
-    function loadIndividualFilesList() {
-        $.ajax({
-            url: '{{ route("admin.attachments.index") }}',
-            method: 'GET',
-            data: {
-                tender_id: {{ $tender->id }},
-                ajax: 1
-            },
-            success: function(data) {
-                let html = '';
-                const attachments = Array.isArray(data.attachments?.data) ? data.attachments.data : [];
-                
-                if (attachments.length === 0) {
-                    html = '<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>변환된 HWP 파일이 없습니다. 먼저 "모든 파일을 한글로 변환" 버튼을 클릭해주세요.</div>';
-                } else {
-                    html = '<div class="list-group">';
-                    attachments.forEach(function(attachment) {
-                        if (attachment.file_type === 'hwp' && attachment.download_status === 'completed') {
-                            const fileSizeKB = Math.round(attachment.file_size / 1024) || 0;
-                            html += `
-                                <div class="list-group-item d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <i class="bi bi-file-earmark-text text-success me-2"></i>
-                                        <strong>${attachment.file_name || attachment.original_name}</strong>
-                                        <small class="text-muted d-block">원본: ${attachment.original_name} (${fileSizeKB}KB)</small>
-                                    </div>
-                                    <a href="{{ url('admin/attachments/download-hwp') }}/${attachment.id}" 
-                                       class="btn btn-sm btn-success">
-                                        <i class="bi bi-download me-1"></i>다운로드
-                                    </a>
-                                </div>
-                            `;
-                        }
-                    });
-                    html += '</div>';
-                    
-                    if (html === '<div class="list-group"></div>') {
-                        html = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle me-2"></i>다운로드 가능한 HWP 파일이 없습니다.</div>';
-                    }
-                }
-                
-                $('#individualFilesList').html(html);
-            },
-            error: function(xhr) {
-                $('#individualFilesList').html('<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>파일 목록을 불러오는데 실패했습니다.</div>');
-            }
-        });
-    }
-
-    // 페이지 로드 시 첨부파일 통계 로드
-    updateAttachmentStats();
 
     // 삭제 버튼
     $('#deleteBtn').click(function() {
-        if (confirm('정말 이 공고를 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
+        if (confirm('정말 이 공고를 삭제하시겠습니까?\\n삭제된 데이터는 복구할 수 없습니다.')) {
             $.ajax({
                 url: '{{ route("admin.tenders.destroy", $tender) }}',
                 method: 'DELETE',
@@ -593,4 +868,4 @@ $(document).ready(function() {
 });
 </script>
 @endpush
-{{-- [END nara:admin_tenders_show] --}}
+{{-- [END nara:admin_tenders_show_enhanced] --}}

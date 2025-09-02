@@ -14,10 +14,18 @@
                         <i class="bi bi-cloud-download me-1"></i>
                         데이터 수집
                     </a>
+                    <button type="button" class="btn btn-warning" id="bulkAnalyzeBtn" disabled>
+                        <i class="bi bi-cpu me-1"></i>
+                        AI 일괄 분석
+                    </button>
                     <button type="button" class="btn btn-success" id="testApiBtn">
                         <i class="bi bi-wifi me-1"></i>
                         API 테스트
                     </button>
+                    <a href="{{ route('admin.analyses.index') }}" class="btn btn-info">
+                        <i class="bi bi-graph-up me-1"></i>
+                        분석 결과
+                    </a>
                 </div>
             </div>
 
@@ -104,6 +112,34 @@
                 </div>
             </div>
 
+            <!-- 업종코드 패턴별 통계 카드 -->
+            <div class="row mb-4">
+                @foreach($industryStats as $stat)
+                <div class="col-xl-3 col-md-6 mb-3">
+                    <div class="card border-left-info shadow h-100">
+                        <div class="card-body">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col mr-2">
+                                    <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                        {{ $stat['name'] }}
+                                    </div>
+                                    <div class="h6 mb-0 font-weight-bold text-gray-800">
+                                        {{ $stat['count'] }}건
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <a href="{{ route('admin.tenders.index', ['industry_pattern' => $stat['pattern']]) }}" 
+                                       class="btn btn-sm btn-outline-info">
+                                        <i class="bi bi-funnel"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+
             <!-- 검색 및 필터 -->
             <div class="card shadow mb-4">
                 <div class="card-header py-3">
@@ -126,15 +162,26 @@
                                     <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>취소</option>
                                 </select>
                             </div>
-                            <div class="col-md-2 mb-3">
-                                <label for="category_id" class="form-label">분류</label>
-                                <select class="form-select" id="category_id" name="category_id">
-                                    <option value="">전체</option>
-                                    <option value="1" {{ request('category_id') == '1' ? 'selected' : '' }}>용역</option>
-                                    <option value="2" {{ request('category_id') == '2' ? 'selected' : '' }}>공사</option>
-                                    <option value="3" {{ request('category_id') == '3' ? 'selected' : '' }}>물품</option>
+                            <div class="col-md-4 mb-3">
+                                <label for="industry_pattern" class="form-label">업종코드</label>
+                                <select class="form-select" id="industry_pattern" name="industry_pattern">
+                                    <option value="">전체 업종</option>
+                                    <option value="81112002" {{ request('industry_pattern') == '81112002' ? 'selected' : '' }}>데이터처리/빅데이터분석서비스</option>
+                                    <option value="81112299" {{ request('industry_pattern') == '81112299' ? 'selected' : '' }}>소프트웨어유지및지원서비스</option>
+                                    <option value="81111811" {{ request('industry_pattern') == '81111811' ? 'selected' : '' }}>운영위탁서비스</option>
+                                    <option value="81111899" {{ request('industry_pattern') == '81111899' ? 'selected' : '' }}>정보시스템유지관리서비스</option>
+                                    <option value="81112199" {{ request('industry_pattern') == '81112199' ? 'selected' : '' }}>인터넷지원개발서비스</option>
+                                    <option value="81111598" {{ request('industry_pattern') == '81111598' ? 'selected' : '' }}>패키지소프트웨어/정보시스템개발서비스</option>
+                                    <option value="81151699" {{ request('industry_pattern') == '81151699' ? 'selected' : '' }}>공간정보DB구축서비스</option>
                                 </select>
                             </div>
+                            <div class="col-md-1 mb-3 d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row">
                             <div class="col-md-2 mb-3">
                                 <label for="start_date" class="form-label">시작일</label>
                                 <input type="date" class="form-control" id="start_date" name="start_date" 
@@ -145,10 +192,10 @@
                                 <input type="date" class="form-control" id="end_date" name="end_date" 
                                        value="{{ request('end_date') }}">
                             </div>
-                            <div class="col-md-1 mb-3 d-flex align-items-end">
-                                <button type="submit" class="btn btn-primary w-100">
-                                    <i class="bi bi-search"></i>
-                                </button>
+                            <div class="col-md-4 mb-3 d-flex align-items-end">
+                                <a href="{{ route('admin.tenders.index') }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-arrow-clockwise"></i> 필터 초기화
+                                </a>
                             </div>
                         </div>
                     </form>
@@ -176,6 +223,7 @@
                                         <th width="10%">예산</th>
                                         <th width="10%">마감일</th>
                                         <th width="8%">상태</th>
+                                        <th width="8%">AI 분석</th>
                                         <th width="7%">액션</th>
                                     </tr>
                                 </thead>
@@ -215,18 +263,17 @@
                                                 </span>
                                             </td>
                                             <td>
+                                                <div class="analysis-status" data-tender-id="{{ $tender->id }}">
+                                                    <span class="badge bg-secondary">미분석</span>
+                                                </div>
+                                            </td>
+                                            <td>
                                                 <div class="btn-group" role="group">
                                                     <a href="{{ route('admin.tenders.show', $tender) }}" 
                                                        class="btn btn-sm btn-outline-primary" title="상세보기">
                                                         <i class="bi bi-eye"></i>
                                                     </a>
-                                                    @if($tender->source_url && $tender->source_url !== '#')
-                                                        <a href="{{ $tender->source_url }}" 
-                                                           target="_blank" 
-                                                           class="btn btn-sm btn-outline-warning" title="나라장터 원본">
-                                                            <i class="bi bi-box-arrow-up-right"></i>
-                                                        </a>
-                                                    @elseif($tender->tender_no)
+                                                    @if($tender->detail_url && $tender->detail_url !== '#')
                                                         <a href="{{ $tender->detail_url }}" 
                                                            target="_blank" 
                                                            class="btn btn-sm btn-outline-warning" title="나라장터 원본">
@@ -454,6 +501,136 @@ $(document).ready(function() {
         const count = $('.tender-checkbox:checked').length;
         $('#selectedCount').text(count);
         $('#bulkActionBtn').prop('disabled', count === 0);
+        $('#bulkAnalyzeBtn').prop('disabled', count === 0);
+    }
+    
+    // 페이지 로딩 시 AI 분석 상태 확인
+    loadAnalysisStatuses();
+    
+    // AI 분석 상태 로딩
+    function loadAnalysisStatuses() {
+        const tenderIds = [];
+        $('.analysis-status').each(function() {
+            tenderIds.push($(this).data('tender-id'));
+        });
+        
+        if (tenderIds.length === 0) return;
+        
+        $.ajax({
+            url: '{{ route("admin.analyses.check_status") }}',
+            method: 'POST',
+            data: {
+                _token: '{{ csrf_token() }}',
+                tender_ids: tenderIds
+            },
+            success: function(response) {
+                Object.entries(response).forEach(([tenderId, status]) => {
+                    const $statusDiv = $(`.analysis-status[data-tender-id="${tenderId}"]`);
+                    if (status.has_analysis) {
+                        const scoreClass = getScoreColorClass(status.score);
+                        const badgeClass = getBadgeClass(status.score);
+                        $statusDiv.html(`
+                            <span class="${badgeClass}" title="점수: ${status.score}점">
+                                ${status.score}점
+                            </span>
+                        `);
+                    }
+                });
+            },
+            error: function(xhr) {
+                console.error('Failed to load analysis statuses:', xhr);
+            }
+        });
+    }
+    
+    // AI 일괄 분석
+    $('#bulkAnalyzeBtn').click(function() {
+        const selectedIds = $('.tender-checkbox:checked').map(function() {
+            return parseInt($(this).val());
+        }).get();
+        
+        if (selectedIds.length === 0) {
+            alert('분석할 공고를 선택해주세요.');
+            return;
+        }
+        
+        if (selectedIds.length > 10) {
+            alert('한 번에 최대 10개까지만 분석할 수 있습니다.');
+            return;
+        }
+        
+        const $btn = $(this);
+        const originalText = $btn.html();
+        
+        $btn.prop('disabled', true);
+        $btn.html('<i class="bi bi-arrow-clockwise me-1"></i>AI 분석 중...');
+        
+        $.ajax({
+            url: '{{ route("admin.analyses.bulk_analyze") }}',
+            method: 'POST',
+            data: {
+                _token: '{{ csrf_token() }}',
+                tender_ids: selectedIds
+            },
+            success: function(response) {
+                if (response.success) {
+                    showAlert('success', response.message);
+                    // 분석 상태 다시 로딩
+                    setTimeout(() => {
+                        loadAnalysisStatuses();
+                    }, 1000);
+                } else {
+                    showAlert('danger', response.message || 'AI 일괄 분석에 실패했습니다.');
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showAlert('danger', response?.message || 'AI 일괄 분석 중 오류가 발생했습니다.');
+                console.error('Bulk Analysis Error:', xhr);
+            },
+            complete: function() {
+                setTimeout(() => {
+                    $btn.prop('disabled', false);
+                    $btn.html(originalText);
+                }, 2000);
+            }
+        });
+    });
+    
+    // 유틸리티 함수들
+    function getScoreColorClass(score) {
+        if (score >= 80) return 'text-success';
+        if (score >= 60) return 'text-info';
+        if (score >= 40) return 'text-warning';
+        return 'text-danger';
+    }
+    
+    function getBadgeClass(score) {
+        if (score >= 80) return 'badge bg-success';
+        if (score >= 60) return 'badge bg-info';
+        if (score >= 40) return 'badge bg-warning';
+        return 'badge bg-danger';
+    }
+    
+    function showAlert(type, message) {
+        const alertClass = `alert alert-${type} alert-dismissible fade show`;
+        const alertHtml = `
+            <div class="${alertClass}" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        // 기존 알림 제거
+        $('.alert').remove();
+        
+        // 새 알림 추가
+        $('.container-fluid').prepend(alertHtml);
+        
+        // 5초 후 자동 제거
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 5000);
     }
 });
 </script>

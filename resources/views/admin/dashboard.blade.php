@@ -63,7 +63,7 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-2">
-                        <a href="#" class="btn btn-outline-primary w-100">
+                        <a href="{{ route('admin.tenders.index') }}?filter=all" class="btn btn-outline-primary w-100">
                             <i class="bi bi-people me-2"></i>
                             사용자 관리
                         </a>
@@ -75,27 +75,27 @@
                         </a>
                     </div>
                     <div class="col-md-2">
-                        <a href="#" class="btn btn-outline-info w-100">
+                        <a href="{{ route('admin.attachments.index') }}" class="btn btn-outline-info w-100">
                             <i class="bi bi-file-text me-2"></i>
-                            템플릿 관리
+                            첨부파일 관리
                         </a>
                     </div>
                     <div class="col-md-2">
-                        <a href="#" class="btn btn-outline-warning w-100">
+                        <a href="{{ route('admin.analyses.index') }}" class="btn btn-outline-warning w-100">
                             <i class="bi bi-graph-up me-2"></i>
-                            통계 분석
+                            AI 분석
                         </a>
                     </div>
                     <div class="col-md-2">
-                        <a href="#" class="btn btn-outline-danger w-100">
+                        <a href="{{ route('admin.tenders.collect') }}" class="btn btn-outline-danger w-100">
                             <i class="bi bi-shield me-2"></i>
-                            권한 관리
+                            데이터 수집
                         </a>
                     </div>
                     <div class="col-md-2">
-                        <a href="#" class="btn btn-outline-secondary w-100">
+                        <a href="{{ route('admin.dashboard') }}" class="btn btn-outline-secondary w-100">
                             <i class="bi bi-gear me-2"></i>
-                            시스템 설정
+                            대시보드 새로고침
                         </a>
                     </div>
                 </div>
