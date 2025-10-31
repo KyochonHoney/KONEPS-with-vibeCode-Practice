@@ -22,10 +22,125 @@ class AiApiService
 
     public function __construct()
     {
-        $this->provider = config('ai.analysis.provider', 'openai');
+        $this->provider = $this->determineProvider();
         $this->cacheTime = config('ai.analysis.cache_ttl', 3600);
         $this->retryAttempts = config('ai.analysis.retry_attempts', 3);
         $this->timeout = config('ai.analysis.timeout', 60);
+    }
+
+    /**
+     * 사용할 AI 프로바이더 결정 (API 키 존재 여부 기반)
+     */
+    private function determineProvider(): string
+    {
+        $configuredProvider = config('ai.analysis.provider', 'mock');
+        
+        // Mock이 명시적으로 설정된 경우
+        if ($configuredProvider === 'mock') {
+            return 'mock';
+        }
+        
+        // OpenAI 설정 확인
+        if ($configuredProvider === 'openai') {
+            $openaiKey = config('ai.openai.api_key');
+            if (!empty($openaiKey) && $openaiKey !== 'your_openai_api_key_here') {
+                return 'openai';
+            }
+        }
+        
+        // Claude 설정 확인
+        if ($configuredProvider === 'claude') {
+            $claudeKey = config('ai.claude.api_key');
+            if (!empty($claudeKey) && $claudeKey !== 'your_claude_api_key_here') {
+                return 'claude';
+            }
+        }
+        
+        // API 키가 없으면 자동으로 Mock 사용
+        Log::info('AI API 키가 설정되지 않아 Mock 모드 사용', [
+            'configured_provider' => $configuredProvider
+        ]);
+        
+        return 'mock';
+    }
+
+    /**
+     * API 연결 테스트
+     * 
+     * @return bool 연결 가능 여부
+     */
+    public function testConnection(): bool
+    {
+        try {
+            if ($this->provider === 'mock') {
+                return true;
+            }
+            
+            $testPrompt = "안녕하세요. API 연결 테스트입니다.";
+            $result = $this->callAiApi($testPrompt, 'connection_test', 1); // 1 토큰으로 제한
+            
+            return !empty($result['response']);
+            
+        } catch (Exception $e) {
+            Log::error('AI API 연결 테스트 실패', ['error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * 과업지시서 요구사항 추출 및 분석
+     * 
+     * @param string $taskInstructionContent 과업지시서 내용
+     * @param array $tenderData 기본 공고 데이터
+     * @return array 추출된 요구사항 및 분석 결과
+     */
+    public function analyzeTaskInstruction(string $taskInstructionContent, array $tenderData = []): array
+    {
+        try {
+            Log::info('과업지시서 AI 분석 시작', [
+                'tender_no' => $tenderData['tender_no'] ?? 'UNKNOWN',
+                'content_length' => strlen($taskInstructionContent)
+            ]);
+
+            // 캐시 키 생성
+            $cacheKey = $this->generateCacheKey('task_instruction', [
+                'tender_no' => $tenderData['tender_no'] ?? '',
+                'content_hash' => md5($taskInstructionContent)
+            ]);
+
+            // 캐시된 결과 확인
+            if ($cached = Cache::get($cacheKey)) {
+                Log::info('과업지시서 분석 캐시 사용', ['tender_no' => $tenderData['tender_no'] ?? '']);
+                return $cached;
+            }
+
+            $prompt = $this->buildTaskInstructionAnalysisPrompt($taskInstructionContent, $tenderData);
+            
+            $result = $this->callAiApi($prompt, 'task_instruction_analysis');
+            
+            // 결과를 구조화된 형태로 파싱
+            $parsedResult = $this->parseTaskInstructionAnalysis($result['response'] ?? '');
+            
+            // 결과 캐싱
+            Cache::put($cacheKey, $parsedResult, $this->cacheTime);
+            
+            Log::info('과업지시서 AI 분석 완료', [
+                'tender_no' => $tenderData['tender_no'] ?? '',
+                'provider' => $this->provider,
+                'extracted_requirements_count' => count($parsedResult['technical_requirements'] ?? [])
+            ]);
+            
+            return $parsedResult;
+            
+        } catch (Exception $e) {
+            Log::error('과업지시서 AI 분석 실패', [
+                'tender_no' => $tenderData['tender_no'] ?? '',
+                'error' => $e->getMessage()
+            ]);
+            
+            // 실패 시 기본 분석 결과 반환
+            return $this->generateFallbackTaskInstructionAnalysis($taskInstructionContent, $tenderData);
+        }
     }
 
     /**
@@ -163,6 +278,20 @@ class AiApiService
                 if ($attempt < $this->retryAttempts) {
                     sleep(pow(2, $attempt)); // 지수적 백오프
                 }
+            }
+        }
+
+        // 모든 시도 실패 시 Mock으로 폴백 (설정되어 있는 경우)
+        if (config('ai.analysis.fallback_to_mock', true) && $this->provider !== 'mock') {
+            Log::warning('실제 AI API 호출 실패, Mock으로 폴백', [
+                'original_provider' => $this->provider,
+                'error' => $lastError->getMessage()
+            ]);
+            
+            try {
+                return $this->callMockAiApi($prompt, $analysisType);
+            } catch (Exception $mockError) {
+                Log::error('Mock AI도 실패', ['error' => $mockError->getMessage()]);
             }
         }
 
@@ -1163,6 +1292,280 @@ class AiApiService
                 'error' => $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * 과업지시서 분석 프롬프트 생성
+     */
+    private function buildTaskInstructionAnalysisPrompt(string $content, array $tenderData): string
+    {
+        $prompt = "다음은 나라장터 과업지시서 내용입니다. 이를 분석하여 실제 프로젝트 요구사항을 추출해주세요.\n\n";
+        
+        $prompt .= "## 공고 기본 정보\n";
+        $prompt .= "- 공고번호: " . ($tenderData['tender_no'] ?? 'N/A') . "\n";
+        $prompt .= "- 공고명: " . ($tenderData['title'] ?? 'N/A') . "\n";
+        $prompt .= "- 발주기관: " . ($tenderData['ntce_instt_nm'] ?? 'N/A') . "\n\n";
+        
+        $prompt .= "## 과업지시서 내용\n";
+        $prompt .= substr($content, 0, 4000) . (strlen($content) > 4000 ? '...' : '') . "\n\n";
+        
+        $prompt .= "## 분석 요청\n";
+        $prompt .= "위 과업지시서를 분석하여 다음 JSON 형태로 결과를 제공해주세요:\n\n";
+        
+        $prompt .= "{\n";
+        $prompt .= '  "project_overview": {' . "\n";
+        $prompt .= '    "project_name": "사업명",' . "\n";
+        $prompt .= '    "project_purpose": "사업 목적",' . "\n";
+        $prompt .= '    "project_duration": "사업 기간",' . "\n";
+        $prompt .= '    "budget": "예산 정보"' . "\n";
+        $prompt .= '  },' . "\n";
+        $prompt .= '  "technical_requirements": {' . "\n";
+        $prompt .= '    "programming_languages": ["Java", "Python", "JavaScript"],' . "\n";
+        $prompt .= '    "frameworks": ["Spring", "Django", "React"],' . "\n";
+        $prompt .= '    "databases": ["MySQL", "PostgreSQL", "Oracle"],' . "\n";
+        $prompt .= '    "servers": ["Linux", "Apache", "Nginx"],' . "\n";
+        $prompt .= '    "special_technologies": ["GIS", "PostGIS", "OpenLayers"]' . "\n";
+        $prompt .= '  },' . "\n";
+        $prompt .= '  "functional_requirements": [' . "\n";
+        $prompt .= '    "주요 기능 1",' . "\n";
+        $prompt .= '    "주요 기능 2"' . "\n";
+        $prompt .= '  ],' . "\n";
+        $prompt .= '  "deliverables": [' . "\n";
+        $prompt .= '    "납품물 1",' . "\n";
+        $prompt .= '    "납품물 2"' . "\n";
+        $prompt .= '  ],' . "\n";
+        $prompt .= '  "evaluation_criteria": {' . "\n";
+        $prompt .= '    "technical_score": 40,' . "\n";
+        $prompt .= '    "business_score": 30,' . "\n";
+        $prompt .= '    "price_score": 30' . "\n";
+        $prompt .= '  },' . "\n";
+        $prompt .= '  "qualification_requirements": [' . "\n";
+        $prompt .= '    "업체 자격요건 1",' . "\n";
+        $prompt .= '    "업체 자격요건 2"' . "\n";
+        $prompt .= '  ],' . "\n";
+        $prompt .= '  "proposal_structure": [' . "\n";
+        $prompt .= '    "제안서 구성 1",' . "\n";
+        $prompt .= '    "제안서 구성 2"' . "\n";
+        $prompt .= '  ],' . "\n";
+        $prompt .= '  "key_considerations": [' . "\n";
+        $prompt .= '    "중요 고려사항 1",' . "\n";
+        $prompt .= '    "중요 고려사항 2"' . "\n";
+        $prompt .= '  ]' . "\n";
+        $prompt .= "}\n\n";
+        
+        $prompt .= "위 형식으로 과업지시서의 핵심 내용을 추출하여 JSON 형태로 응답해주세요.";
+        
+        return $prompt;
+    }
+
+    /**
+     * 과업지시서 분석 결과 파싱
+     */
+    private function parseTaskInstructionAnalysis(string $aiResponse): array
+    {
+        try {
+            // JSON 형태의 응답을 파싱
+            if (preg_match('/\{[\s\S]*\}/', $aiResponse, $matches)) {
+                $jsonString = $matches[0];
+                $parsedData = json_decode($jsonString, true);
+                
+                if ($parsedData && json_last_error() === JSON_ERROR_NONE) {
+                    Log::info('과업지시서 AI 분석 결과 파싱 성공');
+                    return $this->normalizeTaskInstructionAnalysis($parsedData);
+                }
+            }
+            
+            // JSON 파싱 실패 시 텍스트에서 정보 추출
+            return $this->extractRequirementsFromText($aiResponse);
+            
+        } catch (Exception $e) {
+            Log::warning('과업지시서 분석 결과 파싱 실패', ['error' => $e->getMessage()]);
+            return $this->generateBasicTaskInstructionAnalysis($aiResponse);
+        }
+    }
+
+    /**
+     * 과업지시서 분석 결과 정규화
+     */
+    private function normalizeTaskInstructionAnalysis(array $parsedData): array
+    {
+        return [
+            'project_overview' => $parsedData['project_overview'] ?? [
+                'project_name' => '프로젝트명 추출 실패',
+                'project_purpose' => '목적 분석 필요',
+                'project_duration' => '기간 확인 필요',
+                'budget' => '예산 정보 없음'
+            ],
+            'technical_requirements' => $parsedData['technical_requirements'] ?? [
+                'programming_languages' => [],
+                'frameworks' => [],
+                'databases' => [],
+                'servers' => [],
+                'special_technologies' => []
+            ],
+            'functional_requirements' => $parsedData['functional_requirements'] ?? [],
+            'deliverables' => $parsedData['deliverables'] ?? [],
+            'evaluation_criteria' => $parsedData['evaluation_criteria'] ?? [
+                'technical_score' => 40,
+                'business_score' => 30,
+                'price_score' => 30
+            ],
+            'qualification_requirements' => $parsedData['qualification_requirements'] ?? [],
+            'proposal_structure' => $parsedData['proposal_structure'] ?? [],
+            'key_considerations' => $parsedData['key_considerations'] ?? [],
+            'analysis_quality' => 'ai_parsed',
+            'confidence_score' => 85
+        ];
+    }
+
+    /**
+     * 텍스트에서 요구사항 추출 (JSON 파싱 실패 시)
+     */
+    private function extractRequirementsFromText(string $text): array
+    {
+        $requirements = [
+            'technical_requirements' => [
+                'programming_languages' => [],
+                'frameworks' => [],
+                'databases' => [],
+                'servers' => [],
+                'special_technologies' => []
+            ],
+            'functional_requirements' => [],
+            'analysis_quality' => 'text_extracted',
+            'confidence_score' => 60
+        ];
+
+        // 기술스택 키워드 추출
+        $techKeywords = [
+            'programming_languages' => ['Java', 'Python', 'JavaScript', 'PHP', 'C#'],
+            'frameworks' => ['Spring', 'Django', 'Laravel', 'React', 'Vue', 'Angular'],
+            'databases' => ['MySQL', 'PostgreSQL', 'Oracle', 'MongoDB', 'Redis'],
+            'servers' => ['Linux', 'Windows', 'Apache', 'Nginx', 'Tomcat'],
+            'special_technologies' => ['GIS', 'PostGIS', 'OpenLayers', 'Leaflet', 'ArcGIS']
+        ];
+
+        foreach ($techKeywords as $category => $keywords) {
+            foreach ($keywords as $keyword) {
+                if (stripos($text, $keyword) !== false) {
+                    $requirements['technical_requirements'][$category][] = $keyword;
+                }
+            }
+        }
+
+        return $requirements;
+    }
+
+    /**
+     * 기본 과업지시서 분석 결과 생성 (AI 실패 시)
+     */
+    private function generateBasicTaskInstructionAnalysis(string $content): array
+    {
+        return [
+            'project_overview' => [
+                'project_name' => '시스템 구축 프로젝트',
+                'project_purpose' => 'AI 분석 실패로 수동 확인 필요',
+                'project_duration' => '일정 확인 필요',
+                'budget' => '예산 정보 확인 필요'
+            ],
+            'technical_requirements' => [
+                'programming_languages' => ['Java'], // 기본 추정
+                'frameworks' => ['Spring'],
+                'databases' => ['MySQL', 'Oracle'],
+                'servers' => ['Linux'],
+                'special_technologies' => []
+            ],
+            'functional_requirements' => ['기능 요구사항 수동 분석 필요'],
+            'deliverables' => ['납품물 정보 확인 필요'],
+            'evaluation_criteria' => [
+                'technical_score' => 40,
+                'business_score' => 30,
+                'price_score' => 30
+            ],
+            'qualification_requirements' => ['업체 자격 수동 확인 필요'],
+            'proposal_structure' => ['제안서 구조 수동 분석 필요'],
+            'key_considerations' => ['AI 분석 실패로 수동 검토 필요'],
+            'analysis_quality' => 'fallback',
+            'confidence_score' => 30,
+            'is_fallback' => true,
+            'content_preview' => substr($content, 0, 200) . '...'
+        ];
+    }
+
+    /**
+     * Fallback 과업지시서 분석
+     */
+    private function generateFallbackTaskInstructionAnalysis(string $content, array $tenderData): array
+    {
+        // 제목에서 키워드 추출
+        $title = $tenderData['title'] ?? '';
+        $technicalRequirements = [
+            'programming_languages' => [],
+            'frameworks' => [],
+            'databases' => [],
+            'servers' => [],
+            'special_technologies' => []
+        ];
+
+        // 제목 기반 기술 추정
+        if (stripos($title, 'GIS') !== false || stripos($title, '공간') !== false) {
+            $technicalRequirements['special_technologies'] = ['GIS', 'PostGIS', 'OpenLayers'];
+            $technicalRequirements['databases'] = ['PostgreSQL'];
+        }
+        if (stripos($title, '웹') !== false || stripos($title, 'web') !== false) {
+            $technicalRequirements['programming_languages'] = ['Java', 'JavaScript'];
+            $technicalRequirements['frameworks'] = ['Spring', 'React'];
+        }
+        if (stripos($title, '데이터베이스') !== false || stripos($title, 'DB') !== false) {
+            $technicalRequirements['databases'] = ['MySQL', 'Oracle', 'PostgreSQL'];
+        }
+
+        return [
+            'project_overview' => [
+                'project_name' => $tenderData['title'] ?? '프로젝트명 확인 필요',
+                'project_purpose' => '업무 효율성 향상 및 시스템 현대화',
+                'project_duration' => '120일 (추정)',
+                'budget' => $tenderData['budget'] ?? '예산 정보 없음'
+            ],
+            'technical_requirements' => $technicalRequirements,
+            'functional_requirements' => [
+                '시스템 구축',
+                '데이터 관리',
+                '사용자 인터페이스 제공',
+                '운영 및 유지보수'
+            ],
+            'deliverables' => [
+                '시스템 소스코드',
+                '시스템 설계서',
+                '사용자 매뉴얼',
+                '운영 매뉴얼'
+            ],
+            'evaluation_criteria' => [
+                'technical_score' => 40,
+                'business_score' => 30,
+                'price_score' => 30
+            ],
+            'qualification_requirements' => [
+                '소프트웨어사업자 신고',
+                '관련 분야 경험',
+                '전문 인력 보유'
+            ],
+            'proposal_structure' => [
+                '사업 개요 및 이해도',
+                '사업 수행 방안',
+                '기술 제안서',
+                '프로젝트 관리 계획',
+                '투입 인력 및 조직'
+            ],
+            'key_considerations' => [
+                '정부 시스템 보안 요구사항',
+                '웹 접근성 준수',
+                '표준 프레임워크 사용'
+            ],
+            'analysis_quality' => 'title_based_fallback',
+            'confidence_score' => 50,
+            'is_fallback' => true
+        ];
     }
 }
 

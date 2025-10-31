@@ -150,7 +150,7 @@
                         <div class="row">
                             <div class="col-md-3 mb-3">
                                 <label for="search" class="form-label">검색어</label>
-                                <input type="text" class="form-control" id="search" name="search" 
+                                <input type="text" class="form-control" id="search" name="search"
                                        value="{{ request('search') }}" placeholder="제목, 기관명, 공고번호">
                             </div>
                             <div class="col-md-2 mb-3">
@@ -162,6 +162,16 @@
                                     <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>취소</option>
                                 </select>
                             </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label d-block">&nbsp;</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="favorites_only" name="favorites_only" value="1"
+                                           {{ request('favorites_only') == '1' ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="favorites_only">
+                                        <i class="bi bi-star-fill text-warning"></i> 즐겨찾기만 보기
+                                    </label>
+                                </div>
+                            </div>
                             <div class="col-md-4 mb-3">
                                 <label for="industry_pattern" class="form-label">업종코드</label>
                                 <select class="form-select" id="industry_pattern" name="industry_pattern">
@@ -172,7 +182,9 @@
                                     <option value="81111899" {{ request('industry_pattern') == '81111899' ? 'selected' : '' }}>정보시스템유지관리서비스</option>
                                     <option value="81112199" {{ request('industry_pattern') == '81112199' ? 'selected' : '' }}>인터넷지원개발서비스</option>
                                     <option value="81111598" {{ request('industry_pattern') == '81111598' ? 'selected' : '' }}>패키지소프트웨어/정보시스템개발서비스</option>
+                                    <option value="81111599" {{ request('industry_pattern') == '81111599' ? 'selected' : '' }}>시스템소프트웨어개발서비스</option>
                                     <option value="81151699" {{ request('industry_pattern') == '81151699' ? 'selected' : '' }}>공간정보DB구축서비스</option>
+                                    <option value="EMPTY" {{ request('industry_pattern') == 'EMPTY' ? 'selected' : '' }}>기타 (업종상세코드 없음)</option>
                                 </select>
                             </div>
                             <div class="col-md-1 mb-3 d-flex align-items-end">
@@ -214,17 +226,20 @@
                             <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
                                 <thead>
                                     <tr>
-                                        <th width="5%">
+                                        <th width="3%">
                                             <input type="checkbox" id="selectAll">
                                         </th>
+                                        <th width="3%">
+                                            <i class="bi bi-star-fill text-warning" title="즐겨찾기"></i>
+                                        </th>
                                         <th width="10%">공고번호</th>
-                                        <th width="35%">제목</th>
-                                        <th width="15%">기관</th>
+                                        <th width="33%">제목</th>
+                                        <th width="14%">기관</th>
                                         <th width="10%">예산</th>
                                         <th width="10%">마감일</th>
-                                        <th width="8%">상태</th>
-                                        <th width="8%">AI 분석</th>
-                                        <th width="7%">액션</th>
+                                        <th width="7%">상태</th>
+                                        <th width="7%">AI 분석</th>
+                                        <th width="6%">액션</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -232,6 +247,16 @@
                                         <tr>
                                             <td>
                                                 <input type="checkbox" class="tender-checkbox" value="{{ $tender->id }}">
+                                            </td>
+                                            <td class="text-center">
+                                                <button type="button"
+                                                        class="btn btn-sm btn-link p-0 favorite-btn"
+                                                        data-tender-id="{{ $tender->id }}"
+                                                        data-is-favorite="{{ $tender->is_favorite ? '1' : '0' }}"
+                                                        title="{{ $tender->is_favorite ? '즐겨찾기 제거' : '즐겨찾기 추가' }}">
+                                                    <i class="bi {{ $tender->is_favorite ? 'bi-star-fill text-warning' : 'bi-star text-muted' }}"
+                                                       style="font-size: 1.2rem; cursor: pointer;"></i>
+                                                </button>
                                             </td>
                                             <td>
                                                 <small class="text-muted">{{ $tender->tender_no }}</small>
@@ -244,17 +269,22 @@
                                                 <br>
                                                 <small class="text-muted">
                                                     <i class="bi bi-tag"></i> {{ $tender->category->name ?? '미분류' }}
+                                                    @if($tender->classification_code)
+                                                        <br><small class="text-info">{{ $tender->classification_name }}</small>
+                                                    @endif
                                                 </small>
                                             </td>
                                             <td>{{ $tender->agency }}</td>
                                             <td>{{ $tender->formatted_budget }}</td>
                                             <td>
-                                                {{ $tender->end_date ? $tender->end_date->format('Y-m-d') : '미정' }}
-                                                @if($tender->days_remaining !== null)
+                                                @if($tender->formatted_bid_close_date)
+                                                    {{ $tender->formatted_bid_close_date }}
                                                     <br>
-                                                    <small class="text-{{ $tender->days_remaining <= 3 ? 'danger' : 'muted' }}">
-                                                        D-{{ $tender->days_remaining }}
+                                                    <small class="{{ $tender->dday_color_class }}">
+                                                        {{ $tender->dday_display }}
                                                     </small>
+                                                @else
+                                                    <span class="text-muted">미정</span>
                                                 @endif
                                             </td>
                                             <td>
@@ -393,6 +423,46 @@
 .pagination .page-link {
     border-radius: 0.25rem;
     margin: 0 2px;
+}
+
+/* D-Day 관련 스타일 개선 */
+.dday-display {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.dday-today {
+    background-color: #dc3545;
+    color: white;
+    animation: blink 1.5s infinite;
+}
+
+.dday-urgent {
+    background-color: #ffc107;
+    color: #000;
+}
+
+.dday-warning {
+    background-color: #fd7e14;
+    color: white;
+}
+
+.dday-normal {
+    background-color: #198754;
+    color: white;
+}
+
+.dday-expired {
+    background-color: #6c757d;
+    color: white;
+    text-decoration: line-through;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
 }
 </style>
 @endpush
@@ -620,18 +690,57 @@ $(document).ready(function() {
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         `;
-        
+
         // 기존 알림 제거
         $('.alert').remove();
-        
+
         // 새 알림 추가
         $('.container-fluid').prepend(alertHtml);
-        
+
         // 5초 후 자동 제거
         setTimeout(() => {
             $('.alert').alert('close');
         }, 5000);
     }
+
+    // 즐겨찾기 토글
+    $(document).on('click', '.favorite-btn', function() {
+        const $btn = $(this);
+        const tenderId = $btn.data('tender-id');
+        const isFavorite = $btn.data('is-favorite') === '1';
+
+        $.ajax({
+            url: `/admin/tenders/${tenderId}/toggle-favorite`,
+            method: 'PATCH',
+            data: {
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                if (response.success) {
+                    // 별표 아이콘 업데이트
+                    const $icon = $btn.find('i');
+                    if (response.is_favorite) {
+                        $icon.removeClass('bi-star text-muted')
+                             .addClass('bi-star-fill text-warning');
+                        $btn.attr('title', '즐겨찾기 제거');
+                        $btn.data('is-favorite', '1');
+                    } else {
+                        $icon.removeClass('bi-star-fill text-warning')
+                             .addClass('bi-star text-muted');
+                        $btn.attr('title', '즐겨찾기 추가');
+                        $btn.data('is-favorite', '0');
+                    }
+
+                    // 토스트 메시지 (선택사항)
+                    // showAlert('success', response.message);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showAlert('danger', response?.message || '즐겨찾기 토글에 실패했습니다.');
+            }
+        });
+    });
 });
 </script>
 @endpush

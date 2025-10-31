@@ -127,19 +127,64 @@ class NaraApiService
      */
     public function getTendersByDateRange(string $startDate, string $endDate, int $pageNo = 1, int $numOfRows = 100, array $filters = []): array
     {
-        $params = [
-            'inqryBgnDt' => $startDate,
-            'inqryEndDt' => $endDate,
-            'pageNo' => $pageNo,
-            'numOfRows' => $numOfRows,
-        ];
+        // 업종코드 1468, 1426, 6528별로 다중 호출
+        $targetIndustryCodes = ['1468', '1426', '6528'];
+        $allItems = [];
+        $totalCount = 0;
         
-        // 고급 필터링 적용
-        if (!empty($filters)) {
-            $params = array_merge($params, $this->buildAdvancedFilters($filters));
+        foreach ($targetIndustryCodes as $industryCode) {
+            $params = [
+                'inqryBgnDt' => $startDate,
+                'inqryEndDt' => $endDate,
+                'pageNo' => $pageNo,
+                'numOfRows' => $numOfRows,
+                'inqryDiv' => '01',
+                'indstrytyCd' => $industryCode
+            ];
+            
+            try {
+                $response = $this->getBidPblancListInfoServcPPSSrch($params);
+                
+                if (isset($response['body']['items']['item'])) {
+                    $items = $response['body']['items']['item'];
+                    
+                    // XML 파싱 시 단일 항목이 객체로 오는 경우 배열로 변환
+                    if (!isset($items[0])) {
+                        $items = [$items];
+                    }
+                    
+                    if (!empty($items)) {
+                        $allItems = array_merge($allItems, $items);
+                        $totalCount += $response['body']['totalCount'] ?? 0;
+                    }
+                }
+                
+                Log::info("업종코드 {$industryCode} 데이터 수집", [
+                    'industry_code' => $industryCode,
+                    'items_count' => count($items ?? []),
+                    'page' => $pageNo
+                ]);
+                
+            } catch (Exception $e) {
+                Log::warning("업종코드 {$industryCode} 수집 실패", [
+                    'error' => $e->getMessage(),
+                    'industry_code' => $industryCode
+                ]);
+                continue;
+            }
         }
         
-        return $this->getBidPblancListInfoServcPPSSrch($params);
+        // 통합된 응답 구조 반환
+        return [
+            'response' => [
+                'body' => [
+                    'items' => $allItems,
+                    'totalCount' => $totalCount,
+                    'pageNo' => $pageNo,
+                    'numOfRows' => $numOfRows
+                ]
+            ]
+        ];
     }
     
     /**
@@ -311,12 +356,21 @@ class NaraApiService
         // 성공한 분류 코드 적용 (01: 정상 작동 확인)
         $params['inqryDiv'] = '01';
         
-        // 고급 필터링 기능은 API 안정화 후 단계적 추가 예정
-        // 현재는 기본 동작 확보에 집중
+        // 업종코드 필터링 추가 (중요!)
+        // 1426: 소프트웨어개발및공급업, 1468: 정보처리및기타컴퓨터운영관련업, 6528: 기타공학서비스업
+        $targetIndustryCodes = ['1426', '1468', '6528'];
         
-        Log::info('기본 필터링 적용 (성공 파라미터 기반)', [
+        // 업종코드별로 개별 호출하거나 하나씩 필터링
+        // API 제약으로 인해 첫 번째 업종코드만 사용 (추후 개선 필요)
+        if (!empty($targetIndustryCodes)) {
+            $params['industryCd'] = $targetIndustryCodes[0]; // 1426부터 시작
+        }
+        
+        Log::info('업종코드 필터링 적용', [
             'original_filters' => $filters,
             'api_params' => $params,
+            'target_industries' => $targetIndustryCodes,
+            'selected_industry' => $params['industryCd'] ?? null,
             'inqryDiv_note' => '01=성공확인, 11=입력범위값초과'
         ]);
         

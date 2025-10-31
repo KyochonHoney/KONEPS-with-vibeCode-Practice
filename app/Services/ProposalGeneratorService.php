@@ -8,6 +8,8 @@ use App\Models\Tender;
 use App\Models\User;
 use App\Models\CompanyProfile;
 use App\Services\AiApiService;
+use App\Services\DynamicProposalGenerator;
+use App\Services\AttachmentService;
 use Illuminate\Support\Facades\Log;
 use Exception;
 
@@ -19,10 +21,17 @@ use Exception;
 class ProposalGeneratorService
 {
     private AiApiService $aiApiService;
+    private DynamicProposalGenerator $dynamicGenerator;
+    private AttachmentService $attachmentService;
 
-    public function __construct(AiApiService $aiApiService)
-    {
+    public function __construct(
+        AiApiService $aiApiService,
+        DynamicProposalGenerator $dynamicGenerator,
+        AttachmentService $attachmentService
+    ) {
         $this->aiApiService = $aiApiService;
+        $this->dynamicGenerator = $dynamicGenerator;
+        $this->attachmentService = $attachmentService;
     }
 
     /**
@@ -52,21 +61,22 @@ class ProposalGeneratorService
         try {
             $startTime = microtime(true);
             
-            Log::info('제안서 생성 시작', [
+            Log::info('제안서 생성 시작 (동적 생성)', [
                 'proposal_id' => $proposal->id,
                 'tender_id' => $tender->id,
                 'tender_no' => $tender->tender_no,
                 'user_id' => $user->id
             ]);
 
-            // 1단계: 제안서 구조 분석
-            $structureAnalysis = $this->analyzeProposalStructure($tender, $options);
+            // 1단계: 첨부파일 내용 수집
+            $attachmentContents = $this->getAttachmentContents($tender);
             
-            // 2단계: 기존 분석 결과 조회 (있는 경우)
-            $tenderAnalysis = $this->getTenderAnalysis($tender);
-            
-            // 3단계: 제안서 생성
-            $proposalResult = $this->performProposalGeneration($tender, $companyProfile, $structureAnalysis, $tenderAnalysis);
+            // 2단계: 완전 동적 제안서 생성 (하드코딩 없음)
+            $proposalResult = $this->dynamicGenerator->generateDynamicProposal(
+                $tender, 
+                $companyProfile, 
+                $attachmentContents
+            );
             
             $endTime = microtime(true);
             $processingTime = (int) (($endTime - $startTime) * 1000); // ms 단위
@@ -76,12 +86,15 @@ class ProposalGeneratorService
                 'title' => $proposalResult['title'],
                 'content' => $proposalResult['content'],
                 'ai_analysis_data' => [
-                    'structure_analysis' => $structureAnalysis,
+                    'structure_source' => $proposalResult['structure_source'] ?? 'dynamic',
                     'proposal_generation' => $proposalResult,
                     'generation_quality' => $proposalResult['generation_quality'] ?? '보통',
                     'confidence_score' => $proposalResult['confidence_score'] ?? 70,
                     'sections_count' => $proposalResult['sections_generated'] ?? 0,
-                    'estimated_pages' => $proposalResult['estimated_pages'] ?? 15
+                    'estimated_pages' => $proposalResult['estimated_pages'] ?? 15,
+                    'matching_technologies' => $proposalResult['matching_technologies'] ?? [],
+                    'missing_technologies' => $proposalResult['missing_technologies'] ?? [],
+                    'is_dynamic_generated' => $proposalResult['is_dynamic_generated'] ?? true
                 ],
                 'status' => 'completed',
                 'processing_time' => $processingTime,
@@ -395,6 +408,59 @@ class ProposalGeneratorService
 
         // 새 제안서 생성
         return $this->generateProposal($proposal->tender, $proposal->user, $options);
+    }
+
+    /**
+     * 첨부파일 내용 수집
+     * 
+     * @param Tender $tender 공고
+     * @return array 첨부파일 내용 배열
+     */
+    private function getAttachmentContents(Tender $tender): array
+    {
+        $attachmentContents = [];
+
+        try {
+            // 첨부파일이 있는지 확인
+            $attachments = $tender->attachments;
+            
+            if ($attachments->isEmpty()) {
+                Log::info('첨부파일 없음', ['tender_id' => $tender->id]);
+                return [];
+            }
+
+            foreach ($attachments as $attachment) {
+                try {
+                    // 첨부파일 내용 분석
+                    $analysisResult = $this->attachmentService->analyzeAttachment($attachment);
+                    
+                    if (!empty($analysisResult['extracted_content'])) {
+                        $attachmentContents[$attachment->filename] = $analysisResult['extracted_content'];
+                    }
+                    
+                } catch (Exception $e) {
+                    Log::warning('첨부파일 내용 추출 실패', [
+                        'attachment_id' => $attachment->id,
+                        'filename' => $attachment->filename,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            Log::info('첨부파일 내용 수집 완료', [
+                'tender_id' => $tender->id,
+                'total_attachments' => count($attachments),
+                'extracted_contents' => count($attachmentContents)
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('첨부파일 내용 수집 실패', [
+                'tender_id' => $tender->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        return $attachmentContents;
     }
 
     /**

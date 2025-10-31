@@ -66,8 +66,8 @@ class TenderCollectorService
                 );
                 
                 if ($pageNo === 1) {
-                    // 새로운 API 응답 구조: response 래핑 없이 직접 body 접근
-                    $totalCount = $response['body']['totalCount'] ?? 0;
+                    // API 응답 구조: response.body 접근
+                    $totalCount = $response['response']['body']['totalCount'] ?? 0;
                     $totalPages = $totalCount > 0 ? ceil($totalCount / 100) : 1;
                     
                     Log::info('수집 대상 데이터 확인', [
@@ -76,8 +76,8 @@ class TenderCollectorService
                     ]);
                 }
                 
-                // 실제 API 응답 구조: body.items.item 배열에 데이터 있음
-                $items = $response['body']['items']['item'] ?? [];
+                // API 응답 구조: response.body.items 배열에 데이터 있음 (NaraApiService에서 이미 통합됨)
+                $items = $response['response']['body']['items'] ?? [];
                 
                 if (!empty($items)) {
                     // 업종코드 필터 추출
@@ -183,43 +183,51 @@ class TenderCollectorService
         
         foreach ($items as $item) {
             try {
-                // 업종코드 패턴 매칭 (마지막 2자리 제외한 패턴)
-                $targetPatterns = [
-                    '81112002', // 8111200201, 8111200202 -> 데이터처리서비스, 빅데이터분석서비스
-                    '81112299', // 8111229901 -> 소프트웨어유지및지원서비스
-                    '81111811', // 8111181101 -> 운영위탁서비스
-                    '81111899', // 8111189901 -> 정보시스템유지관리서비스
-                    '81112199', // 8111219901 -> 인터넷지원개발서비스
-                    '81111598', // 8111159801, 8111159901 -> 패키지소프트웨어개발및도입서비스, 정보시스템개발서비스
-                    '81151699'  // 8115169901 -> 공간정보DB구축서비스
+                // 정확한 8개 업종상세코드 매칭 (중복 제거)
+                $targetCodes = [
+                    '81112002', // 데이터처리서비스 (빅데이터분석서비스도 동일 코드)
+                    '81112299', // 소프트웨어유지및지원서비스
+                    '81111811', // 운영위탁서비스
+                    '81111899', // 정보시스템유지관리서비스
+                    '81112199', // 인터넷지원개발서비스
+                    '81111598', // 패키지소프트웨어개발및도입서비스
+                    '81111599', // 정보시스템개발서비스
+                    '81151699'  // 공간정보DB구축서비스
                 ];
                 
                 $itemClassification = $this->safeExtractString($item['pubPrcrmntClsfcNo'] ?? '');
                 $bidNtceNo = $this->safeExtractString($item['bidNtceNo'] ?? '');
                 
-                // 패턴 매칭으로 확인
+                // 정확한 코드 매칭으로 확인
                 $isTargetCode = false;
-                $matchedPattern = '';
+                $matchedCode = '';
+                $isEmptyClassification = false;
                 
-                foreach ($targetPatterns as $pattern) {
-                    if (strpos($itemClassification, $pattern) === 0) {
+                // 빈 값이나 필드없음 확인
+                if (empty($itemClassification) || trim($itemClassification) === '') {
+                    $isEmptyClassification = true;
+                    $matchedCode = 'EMPTY'; // 기타 카테고리용
+                    Log::debug("빈 업종코드로 저장: {$bidNtceNo} - 분류코드 없음");
+                } else {
+                    // 정확한 코드 매칭 (정확히 일치하는 8개 코드만)
+                    if (in_array($itemClassification, $targetCodes)) {
                         $isTargetCode = true;
-                        $matchedPattern = $pattern;
-                        break;
+                        $matchedCode = $itemClassification;
                     }
                 }
                 
-                if (!$isTargetCode) {
+                // 대상 코드도 아니고 빈 값도 아닌 경우만 제외
+                if (!$isTargetCode && !$isEmptyClassification) {
                     $stats['classification_filtered']++;
-                    if (!empty($itemClassification)) {
-                        Log::debug("필터링 제외: {$bidNtceNo} - 분류코드 '{$itemClassification}' (대상 패턴 아님)");
-                    }
+                    Log::debug("필터링 제외: {$bidNtceNo} - 분류코드 '{$itemClassification}' (대상 코드 아님)");
                     continue;
                 }
                 
-                Log::info("대상 업종코드 발견: {$bidNtceNo} - 분류코드 '{$itemClassification}' (패턴: {$matchedPattern})");
+                Log::info("대상 업종코드 발견: {$bidNtceNo} - 분류코드 '{$itemClassification}' (매칭: {$matchedCode})");
                 
-                $tenderData = $this->mapApiDataToTender($item, $includeAllFields);
+                // 빈 분류코드 정보를 전달
+                $extraData = ['is_empty_classification' => $isEmptyClassification];
+                $tenderData = $this->mapApiDataToTender($item, $includeAllFields, $extraData);
                 
                 // 중복 확인
                 if ($this->isDuplicate($tenderData)) {
@@ -273,19 +281,22 @@ class TenderCollectorService
                     
                     try {
                         $shouldBeClosed = false;
+                        $today = Carbon::now()->startOfDay();
                         
-                        // 개찰일자 확인
+                        // 개찰일자 확인 (날짜 기준)
                         if (!empty($tender->openg_dt)) {
-                            $openingDate = Carbon::parse($tender->openg_dt);
-                            if ($openingDate->isPast()) {
+                            $openingDate = Carbon::parse($tender->openg_dt)->startOfDay();
+                            // 개찰일이 오늘보다 과거이거나 오늘이면 마감
+                            if ($openingDate->isBefore($today) || $openingDate->isSameDay($today)) {
                                 $shouldBeClosed = true;
                             }
                         }
                         
-                        // 입찰 마감일 확인 (추가 검증)
+                        // 입찰 마감일 확인 (날짜 기준, 당일은 제외)
                         if (!$shouldBeClosed && !empty($tender->bid_clse_dt)) {
-                            $bidCloseDate = Carbon::parse($tender->bid_clse_dt);
-                            if ($bidCloseDate->isPast()) {
+                            $bidCloseDate = Carbon::parse($tender->bid_clse_dt)->startOfDay();
+                            // 마감일이 오늘보다 과거일 때만 마감 (당일은 D-Day로 유지)
+                            if ($bidCloseDate->isBefore($today)) {
                                 $shouldBeClosed = true;
                             }
                         }
@@ -324,15 +335,26 @@ class TenderCollectorService
      * @param bool $includeAllFields 모든 필드 포함 여부 (기본값: true)
      * @return array Tender 모델용 데이터
      */
-    private function mapApiDataToTender(array $item, bool $includeAllFields = true): array
+    private function mapApiDataToTender(array $item, bool $includeAllFields = true, array $extraData = []): array
     {
         // 안전한 필드 추출 (배열일 수 있는 필드들 처리)
         $bidNtceNo = $this->safeExtractString($item['bidNtceNo'] ?? '');
         $bidNtceNm = $this->safeExtractString($item['bidNtceNm'] ?? '');
         $dminsttNm = $this->safeExtractString($item['dminsttNm'] ?? '');
         
-        // 공고 분류 매핑
-        $categoryId = $this->mapCategory($this->safeExtractString($item['inqryDiv'] ?? null));
+        // 공고 분류 매핑 (세부업종코드 기반으로 정확한 분류)
+        if ($extraData['is_empty_classification'] ?? false) {
+            $categoryId = 4; // 기타 카테고리
+        } else {
+            // 세부업종코드로 분류 결정 (더 정확함)
+            $detailCode = $this->safeExtractString($item['pubPrcrmntClsfcNo'] ?? '');
+            $categoryId = $this->mapCategoryByDetailCode($detailCode);
+            
+            // 세부코드로 분류 실패시 기존 방식 사용
+            if (!$categoryId) {
+                $categoryId = $this->mapCategory($this->safeExtractString($item['inqryDiv'] ?? null));
+            }
+        }
         
         // 예산 금액 파싱
         $budget = $this->parseBudget($item['presmptPrce'] ?? null);
@@ -405,6 +427,38 @@ class TenderCollectorService
         ];
         
         return $categoryMap[$inqryDiv] ?? null;
+    }
+
+    /**
+     * 세부업종코드로 분류 매핑 (더 정확한 방법)
+     * 
+     * @param string|null $detailCode 세부업종코드
+     * @return int|null 분류 ID
+     */
+    private function mapCategoryByDetailCode(?string $detailCode): ?int
+    {
+        if (empty($detailCode)) {
+            return null;
+        }
+
+        // 811로 시작하는 코드들은 모두 용역(IT서비스)
+        if (str_starts_with($detailCode, '811')) {
+            return 1; // 용역
+        }
+
+        // 추가 매핑 규칙 (필요시 확장)
+        $prefixMap = [
+            '80' => 2, // 공사 관련
+            '90' => 3, // 물품 관련
+        ];
+
+        foreach ($prefixMap as $prefix => $categoryId) {
+            if (str_starts_with($detailCode, $prefix)) {
+                return $categoryId;
+            }
+        }
+
+        return null; // 매핑되지 않는 경우
     }
     
     /**
@@ -479,27 +533,34 @@ class TenderCollectorService
     private function mapStatus(array $item, ?string $endDate): string
     {
         try {
-            // 1. 개찰일자 확인 (가장 중요)
+            $today = Carbon::now()->startOfDay();
+            
+            // 1. 개찰일자 확인 (날짜 기준)
             $openingDate = $this->safeExtractString($item['opengDt'] ?? '');
             if (!empty($openingDate)) {
-                $openingCarbon = Carbon::parse($openingDate);
-                if ($openingCarbon->isPast()) {
-                    return 'closed'; // 개찰이 끝났으면 마감
+                $openingCarbon = Carbon::parse($openingDate)->startOfDay();
+                // 개찰일이 오늘보다 과거이거나 오늘이면 마감
+                if ($openingCarbon->isBefore($today) || $openingCarbon->isSameDay($today)) {
+                    return 'closed';
                 }
             }
             
-            // 2. 입찰 마감일 확인
+            // 2. 입찰 마감일 확인 (날짜 기준, 당일은 D-Day)
             $bidCloseDate = $this->safeExtractString($item['bidClseDt'] ?? '');
             if (!empty($bidCloseDate)) {
-                $bidCloseCarbon = Carbon::parse($bidCloseDate);
-                if ($bidCloseCarbon->isPast()) {
-                    return 'closed'; // 입찰 마감이 지났으면 마감
+                $bidCloseCarbon = Carbon::parse($bidCloseDate)->startOfDay();
+                // 마감일이 오늘보다 과거일 때만 마감 (당일은 D-Day로 유지)
+                if ($bidCloseCarbon->isBefore($today)) {
+                    return 'closed';
                 }
             }
             
-            // 3. 기존 마감일 확인 (fallback)
-            if ($endDate && Carbon::parse($endDate)->isPast()) {
-                return 'closed';
+            // 3. 기존 마감일 확인 (fallback, 날짜 기준)
+            if ($endDate) {
+                $endDateCarbon = Carbon::parse($endDate)->startOfDay();
+                if ($endDateCarbon->isBefore($today)) {
+                    return 'closed';
+                }
             }
             
             // 4. 기본적으로 active
@@ -661,26 +722,27 @@ class TenderCollectorService
         string $endDate, 
         array $classificationCodes = []
     ): array {
-        // 업종코드 패턴 매칭 (사용자 지정)
-        $targetPatterns = [
-            '81112002', // 8111200201, 8111200202 -> 데이터처리서비스, 빅데이터분석서비스
-            '81112299', // 8111229901 -> 소프트웨어유지및지원서비스
-            '81111811', // 8111181101 -> 운영위탁서비스
-            '81111899', // 8111189901 -> 정보시스템유지관리서비스
-            '81112199', // 8111219901 -> 인터넷지원개발서비스
-            '81111598', // 8111159801, 8111159901 -> 패키지소프트웨어개발및도입서비스, 정보시스템개발서비스
-            '81151699'  // 8115169901 -> 공간정보DB구축서비스
+        // 정확한 8개 업종상세코드 매칭 (중복 제거)
+        $targetCodes = [
+            '81112002', // 데이터처리서비스 (빅데이터분석서비스도 동일 코드)
+            '81112299', // 소프트웨어유지및지원서비스
+            '81111811', // 운영위탁서비스
+            '81111899', // 정보시스템유지관리서비스
+            '81112199', // 인터넷지원개발서비스
+            '81111598', // 패키지소프트웨어개발및도입서비스
+            '81111599', // 정보시스템개발서비스
+            '81151699'  // 공간정보DB구축서비스
         ];
         
         $filters = [
             'classification_codes' => [] // 빈 배열로 전달 (필터링은 processTenderItems에서)
         ];
         
-        Log::info('업종코드 패턴 매칭 데이터 수집 시작', [
+        Log::info('업종코드 정확매칭 데이터 수집 시작', [
             'start_date' => $startDate,
             'end_date' => $endDate,
-            'target_patterns' => $targetPatterns,
-            'pattern_count' => count($targetPatterns)
+            'target_codes' => $targetCodes,
+            'code_count' => count($targetCodes)
         ]);
         
         return $this->collectTendersByDateRange($startDate, $endDate, $filters);
@@ -1091,6 +1153,220 @@ class TenderCollectorService
             Log::error("크롤링 오류: {$bidNtceNo} - {$e->getMessage()}");
             return false; // 오류 시 제외
         }
+    }
+    
+    /**
+     * 마감된 공고 자동 삭제 (크롤링 기능의 일부)
+     * 
+     * @param int $expiredDays 마감 후 N일 지난 공고 삭제 (기본: 7일)
+     * @param bool $dryRun 실제 삭제하지 않고 확인만 (기본: false)
+     * @return array 삭제 결과 통계
+     */
+    public function cleanupExpiredTenders(int $expiredDays = 7, bool $dryRun = false): array
+    {
+        $stats = [
+            'total_expired' => 0,
+            'deleted_count' => 0,
+            'errors' => 0,
+            'start_time' => now(),
+            'end_time' => null,
+            'deleted_tender_nos' => []
+        ];
+        
+        Log::info('마감된 공고 정리 시작', [
+            'expired_days' => $expiredDays,
+            'dry_run' => $dryRun
+        ]);
+        
+        try {
+            // 마감 기준일 계산 (마감일 + N일)
+            $expiredDate = Carbon::now()->subDays($expiredDays)->format('Y-m-d');
+            
+            // 마감된 공고 조회
+            $expiredTenders = Tender::where(function($query) use ($expiredDate) {
+                // end_date가 있고 만료된 경우
+                $query->where('end_date', '<=', $expiredDate)
+                      ->whereNotNull('end_date');
+            })
+            ->orWhere(function($query) use ($expiredDate) {
+                // bid_clse_dt (입찰마감일시)가 있고 만료된 경우
+                $query->whereRaw("DATE(bid_clse_dt) <= ?", [$expiredDate])
+                      ->whereNotNull('bid_clse_dt');
+            })
+            ->orWhere(function($query) use ($expiredDate) {
+                // openg_dt (개찰일시)가 있고 만료된 경우  
+                $query->whereRaw("DATE(openg_dt) <= ?", [$expiredDate])
+                      ->whereNotNull('openg_dt');
+            })
+            ->get();
+            
+            $stats['total_expired'] = $expiredTenders->count();
+            
+            if ($stats['total_expired'] === 0) {
+                Log::info('삭제할 마감된 공고가 없습니다.');
+                $stats['end_time'] = now();
+                return $stats;
+            }
+            
+            Log::info("발견된 마감 공고: {$stats['total_expired']}개");
+            
+            foreach ($expiredTenders as $tender) {
+                try {
+                    // 마감 상태 재확인
+                    if ($this->isActuallyExpired($tender, $expiredDays)) {
+                        $tenderNo = $tender->tender_no;
+                        $stats['deleted_tender_nos'][] = $tenderNo;
+                        
+                        if (!$dryRun) {
+                            // 관련 데이터도 함께 삭제
+                            $this->deleteTenderWithRelatedData($tender);
+                            Log::info("마감 공고 삭제 완료: {$tenderNo}");
+                        } else {
+                            Log::info("마감 공고 삭제 대상 (dry run): {$tenderNo}");
+                        }
+                        
+                        $stats['deleted_count']++;
+                    }
+                } catch (Exception $e) {
+                    Log::error('공고 삭제 오류', [
+                        'tender_no' => $tender->tender_no,
+                        'error' => $e->getMessage()
+                    ]);
+                    $stats['errors']++;
+                }
+            }
+            
+            $action = $dryRun ? '검사' : '삭제';
+            Log::info("마감된 공고 {$action} 완료", [
+                'total_expired' => $stats['total_expired'],
+                'deleted_count' => $stats['deleted_count'],
+                'errors' => $stats['errors']
+            ]);
+            
+        } catch (Exception $e) {
+            Log::error('마감 공고 정리 중 오류 발생', [
+                'error' => $e->getMessage()
+            ]);
+            $stats['errors']++;
+        }
+        
+        $stats['end_time'] = now();
+        return $stats;
+    }
+    
+    /**
+     * 공고가 실제로 마감되었는지 확인
+     * 
+     * @param Tender $tender 확인할 공고
+     * @param int $expiredDays 마감 후 기간
+     * @return bool 실제 마감 여부
+     */
+    private function isActuallyExpired(Tender $tender, int $expiredDays): bool
+    {
+        $now = Carbon::now();
+        $expiredThreshold = $now->copy()->subDays($expiredDays);
+        
+        // 1. end_date 확인 (가장 기본적인 마감일)
+        if ($tender->end_date) {
+            $endDate = Carbon::parse($tender->end_date);
+            if ($endDate->lte($expiredThreshold)) {
+                Log::debug("마감 확인 (end_date): {$tender->tender_no} - {$tender->end_date}");
+                return true;
+            }
+        }
+        
+        // 2. 입찰마감일시 확인 (bid_clse_dt)
+        if ($tender->bid_clse_dt) {
+            $closeDate = Carbon::parse($tender->bid_clse_dt);
+            if ($closeDate->lte($expiredThreshold)) {
+                Log::debug("마감 확인 (bid_clse_dt): {$tender->tender_no} - {$tender->bid_clse_dt}");
+                return true;
+            }
+        }
+        
+        // 3. 개찰일시 확인 (opng_dt) - 일반적으로 최종 마감
+        if ($tender->opng_dt) {
+            $openingDate = Carbon::parse($tender->opng_dt);
+            if ($openingDate->lte($expiredThreshold)) {
+                Log::debug("마감 확인 (opng_dt): {$tender->tender_no} - {$tender->opng_dt}");
+                return true;
+            }
+        }
+        
+        // 4. 상태가 명시적으로 마감인 경우
+        if (in_array($tender->status, ['closed', 'expired', 'cancelled'])) {
+            Log::debug("마감 확인 (status): {$tender->tender_no} - {$tender->status}");
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 공고와 관련된 모든 데이터 삭제
+     * 
+     * @param Tender $tender 삭제할 공고
+     * @return void
+     */
+    private function deleteTenderWithRelatedData(Tender $tender): void
+    {
+        DB::transaction(function () use ($tender) {
+            // 1. 분석 결과 삭제
+            $tender->analyses()->delete();
+            
+            // 2. 제안서 삭제  
+            $tender->proposals()->delete();
+            
+            // 3. 첨부파일 삭제
+            $attachments = $tender->attachments()->get();
+            foreach ($attachments as $attachment) {
+                // 실제 파일 삭제
+                if ($attachment->file_path && file_exists(storage_path('app/' . $attachment->file_path))) {
+                    unlink(storage_path('app/' . $attachment->file_path));
+                }
+                $attachment->delete();
+            }
+            
+            // 4. 공고 자체 삭제
+            $tender->delete();
+        });
+    }
+    
+    /**
+     * 크롤링과 함께 자동 정리 실행
+     * 
+     * @param string $startDate 수집 시작일
+     * @param string $endDate 수집 종료일  
+     * @param array $filters 추가 필터
+     * @param int $cleanupDays 정리할 마감 기간
+     * @return array 수집 및 정리 결과
+     */
+    public function collectAndCleanup(string $startDate, string $endDate, array $filters = [], int $cleanupDays = 7): array
+    {
+        $results = [
+            'collection' => [],
+            'cleanup' => [],
+            'total_time' => 0
+        ];
+        
+        $startTime = microtime(true);
+        
+        // 1. 데이터 수집
+        Log::info('크롤링 + 정리 모드 시작');
+        $results['collection'] = $this->collectTendersByDateRange($startDate, $endDate, $filters);
+        
+        // 2. 마감된 공고 정리
+        $results['cleanup'] = $this->cleanupExpiredTenders($cleanupDays, false);
+        
+        $results['total_time'] = round(microtime(true) - $startTime, 2);
+        
+        Log::info('크롤링 + 정리 모드 완료', [
+            'collection_new' => $results['collection']['new_records'] ?? 0,
+            'cleanup_deleted' => $results['cleanup']['deleted_count'] ?? 0,
+            'total_time' => $results['total_time']
+        ]);
+        
+        return $results;
     }
 }
 // [END nara:tender_collector]

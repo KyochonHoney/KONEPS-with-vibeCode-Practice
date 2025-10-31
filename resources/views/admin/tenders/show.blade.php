@@ -21,6 +21,14 @@
                     <h1 class="h3 text-gray-800">입찰공고 상세정보</h1>
                 </div>
                 <div>
+                    <button type="button"
+                            class="btn btn-{{ $tender->is_favorite ? 'warning' : 'outline-secondary' }} favorite-toggle-btn"
+                            data-tender-id="{{ $tender->id }}"
+                            data-is-favorite="{{ $tender->is_favorite ? '1' : '0' }}"
+                            title="{{ $tender->is_favorite ? '즐겨찾기 제거' : '즐겨찾기 추가' }}">
+                        <i class="bi {{ $tender->is_favorite ? 'bi-star-fill' : 'bi-star' }} me-1"></i>
+                        {{ $tender->is_favorite ? '즐겨찾기' : '즐겨찾기 추가' }}
+                    </button>
                     <a href="{{ route('admin.tenders.index') }}" class="btn btn-secondary">
                         <i class="bi bi-arrow-left me-1"></i>
                         목록으로
@@ -501,6 +509,50 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 내 메모 -->
+                    <div class="card shadow mb-4">
+                        <div class="card-header py-3">
+                            <h6 class="m-0 font-weight-bold text-primary">
+                                <i class="bi bi-chat-left-text me-2"></i>내 메모
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="mentionText" class="form-label">
+                                    <small class="text-muted">이 공고에 대한 개인 메모를 작성하세요 (어디까지 봤는지, 중요 포인트 등)</small>
+                                </label>
+                                <textarea
+                                    class="form-control"
+                                    id="mentionText"
+                                    rows="5"
+                                    maxlength="5000"
+                                    placeholder="예: 2페이지까지 확인 완료, 기술스택 부합, 견적 검토 필요">{{ $userMention->mention ?? '' }}</textarea>
+                                <div class="d-flex justify-content-between align-items-center mt-2">
+                                    <small class="text-muted">
+                                        <span id="charCount">{{ $userMention ? strlen($userMention->mention) : 0 }}</span> / 5000자
+                                    </small>
+                                    <div>
+                                        @if($userMention && $userMention->mention)
+                                            <button type="button" class="btn btn-sm btn-outline-danger me-2" id="deleteMentionBtn">
+                                                <i class="bi bi-trash me-1"></i>삭제
+                                            </button>
+                                        @endif
+                                        <button type="button" class="btn btn-sm btn-primary" id="saveMentionBtn">
+                                            <i class="bi bi-save me-1"></i>저장
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            @if($userMention && $userMention->updated_at)
+                                <div class="text-end">
+                                    <small class="text-muted">
+                                        마지막 수정: {{ $userMention->updated_at->format('Y-m-d H:i') }}
+                                    </small>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -864,6 +916,149 @@ $(document).ready(function() {
                 }
             });
         }
+    });
+
+    // 즐겨찾기 토글 버튼
+    $('.favorite-toggle-btn').click(function() {
+        const $btn = $(this);
+        const tenderId = $btn.data('tender-id');
+        const isFavorite = $btn.data('is-favorite') === '1';
+
+        $.ajax({
+            url: `/admin/tenders/${tenderId}/toggle-favorite`,
+            method: 'PATCH',
+            data: {
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                if (response.success) {
+                    // 버튼 스타일 및 텍스트 업데이트
+                    const $icon = $btn.find('i');
+
+                    if (response.is_favorite) {
+                        $btn.removeClass('btn-outline-secondary').addClass('btn-warning');
+                        $icon.removeClass('bi-star').addClass('bi-star-fill');
+                        $btn.attr('title', '즐겨찾기 제거');
+                        $btn.contents().last()[0].textContent = ' 즐겨찾기';
+                        $btn.data('is-favorite', '1');
+                    } else {
+                        $btn.removeClass('btn-warning').addClass('btn-outline-secondary');
+                        $icon.removeClass('bi-star-fill').addClass('bi-star');
+                        $btn.attr('title', '즐겨찾기 추가');
+                        $btn.contents().last()[0].textContent = ' 즐겨찾기 추가';
+                        $btn.data('is-favorite', '0');
+                    }
+
+                    // 성공 메시지 (선택사항)
+                    showToast('success', response.message);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showToast('danger', response?.message || '즐겨찾기 토글에 실패했습니다.');
+            }
+        });
+    });
+
+    // 토스트 메시지 표시 함수
+    function showToast(type, message) {
+        const alertClass = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        const alertHtml = `
+            <div class="${alertClass}" role="alert" style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+
+        $('body').append(alertHtml);
+
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 3000);
+    }
+
+    // 메모 글자 수 카운터
+    $('#mentionText').on('input', function() {
+        const length = $(this).val().length;
+        $('#charCount').text(length);
+    });
+
+    // 메모 저장 버튼
+    $('#saveMentionBtn').click(function() {
+        const $btn = $(this);
+        const mention = $('#mentionText').val().trim();
+        const originalText = $btn.html();
+
+        $btn.prop('disabled', true).html('<i class="spinner-border spinner-border-sm me-1"></i>저장 중...');
+
+        $.ajax({
+            url: '{{ route("admin.tenders.store_mention", $tender) }}',
+            method: 'POST',
+            data: {
+                _token: '{{ csrf_token() }}',
+                mention: mention
+            },
+            success: function(response) {
+                if (response.success) {
+                    showToast('success', response.message);
+
+                    // 삭제 버튼이 없으면 추가
+                    if ($('#deleteMentionBtn').length === 0 && mention) {
+                        const deleteBtn = `
+                            <button type="button" class="btn btn-sm btn-outline-danger me-2" id="deleteMentionBtn">
+                                <i class="bi bi-trash me-1"></i>삭제
+                            </button>
+                        `;
+                        $btn.before(deleteBtn);
+                    }
+
+                    // 페이지 새로고침 (마지막 수정 시간 업데이트를 위해)
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showToast('danger', response?.message || '메모 저장에 실패했습니다.');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html(originalText);
+            }
+        });
+    });
+
+    // 메모 삭제 버튼 (동적 이벤트 바인딩)
+    $(document).on('click', '#deleteMentionBtn', function() {
+        if (!confirm('정말 이 메모를 삭제하시겠습니까?')) {
+            return;
+        }
+
+        const $btn = $(this);
+        const originalText = $btn.html();
+
+        $btn.prop('disabled', true).html('<i class="spinner-border spinner-border-sm me-1"></i>삭제 중...');
+
+        $.ajax({
+            url: '{{ route("admin.tenders.destroy_mention", $tender) }}',
+            method: 'DELETE',
+            data: {
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                if (response.success) {
+                    showToast('success', response.message);
+                    $('#mentionText').val('');
+                    $('#charCount').text('0');
+                    $btn.remove();
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showToast('danger', response?.message || '메모 삭제에 실패했습니다.');
+                $btn.prop('disabled', false).html(originalText);
+            }
+        });
     });
 });
 </script>

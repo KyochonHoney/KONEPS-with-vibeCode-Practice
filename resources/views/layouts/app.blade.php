@@ -65,8 +65,29 @@
                             <a class="nav-link" href="{{ route('admin.proposals.index') }}">제안서 관리</a>
                         </li>
                         @if(auth()->user()->isAdmin())
-                            <li class="nav-item">
-                                <a class="nav-link" href="{{ route('admin.dashboard') }}">관리자</a>
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                    관리자
+                                </a>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="{{ route('admin.dashboard') }}">
+                                        <i class="bi bi-speedometer2"></i> 대시보드
+                                    </a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ route('admin.tenders.collect') }}">
+                                        <i class="bi bi-download"></i> 데이터 수집
+                                    </a></li>
+                                    <li><a class="dropdown-item" href="{{ route('admin.tenders.cleanup') }}">
+                                        <i class="bi bi-trash"></i> 마감 공고 정리
+                                    </a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ route('admin.analyses.index') }}">
+                                        <i class="bi bi-graph-up"></i> AI 분석
+                                    </a></li>
+                                    <li><a class="dropdown-item" href="{{ route('admin.attachments.index') }}">
+                                        <i class="bi bi-paperclip"></i> 첨부파일
+                                    </a></li>
+                                </ul>
                             </li>
                         @endif
                     @endauth

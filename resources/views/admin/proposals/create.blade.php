@@ -103,9 +103,24 @@
 
                         <!-- 버튼 -->
                         <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary btn-lg" onclick="this.disabled=true; this.innerHTML='<i class=\"fas fa-spinner fa-spin\"></i> 생성 중...'; this.form.submit();">
+                            <button type="submit" class="btn btn-primary btn-lg" id="generateBtn">
                                 <i class="fas fa-magic"></i> AI 제안서 생성 시작
                             </button>
+                        </div>
+                        
+                        <!-- 진행 상태 표시 -->
+                        <div id="progressArea" class="mt-3" style="display: none;">
+                            <div class="alert alert-info">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm me-3" role="status"></div>
+                                    <div>
+                                        <strong id="progressTitle">제안서 생성 중...</strong>
+                                        <div class="small text-muted mt-1" id="progressDesc">
+                                            AI가 공고를 분석하고 맞춤형 제안서를 생성하고 있습니다.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -115,3 +130,147 @@
 </div>
 
 @endsection
+
+@push('scripts')
+<script>
+// 즉시 실행하는 더 간단한 방식으로 수정
+(function() {
+    'use strict';
+    
+    // DOM 로딩 완료 대기
+    function initializeProposalForm() {
+        const generateBtn = document.getElementById('generateBtn');
+        const progressArea = document.getElementById('progressArea');
+        
+        if (!generateBtn) {
+            console.error('Generate button not found');
+            return;
+        }
+        
+        // 올바른 form 찾기 (tender_id 입력이 있는 form)
+        const form = Array.from(document.querySelectorAll('form')).find(f => 
+            f.querySelector('input[name="tender_id"]')
+        );
+        
+        if (!form) {
+            console.error('제안서 생성 form을 찾을 수 없습니다.');
+            return;
+        }
+        
+        console.log('Form found:', form.action, form.method);
+        console.log('Button found:', generateBtn.textContent.trim());
+        
+        let isSubmitting = false;
+        const originalBtnText = generateBtn.innerHTML;
+        
+        // 버튼 상태 복구 함수
+        function resetButton() {
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = originalBtnText;
+            isSubmitting = false;
+            
+            if (progressArea) {
+                progressArea.style.display = 'none';
+            }
+        }
+        
+        // 폼 제출 이벤트 처리
+        function handleFormSubmit(e) {
+            console.log('Form submit event triggered');
+            
+            if (isSubmitting) {
+                e.preventDefault();
+                console.log('Already submitting, preventing duplicate');
+                return false;
+            }
+            
+            const tenderHidden = form.querySelector('input[name="tender_id"]');
+            const tenderSelect = form.querySelector('select[name="tender_id"]');
+            
+            // 공고 선택 확인
+            if (!tenderHidden && (!tenderSelect || !tenderSelect.value)) {
+                e.preventDefault();
+                alert('공고를 선택해주세요.');
+                return false;
+            }
+            
+            console.log('Starting proposal generation...');
+            
+            // 제출 상태 설정
+            isSubmitting = true;
+            
+            // UI 업데이트
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 생성 중...';
+            
+            if (progressArea) {
+                progressArea.style.display = 'block';
+                
+                const progressTitle = document.getElementById('progressTitle');
+                const progressDesc = document.getElementById('progressDesc');
+                
+                if (progressTitle && progressDesc) {
+                    // 진행 상태 업데이트
+                    const steps = [
+                        { title: '공고 분석 중...', desc: 'AI가 공고 내용을 분석하고 있습니다.', delay: 2000 },
+                        { title: '구조 분석 중...', desc: '최적의 제안서 구조를 설계하고 있습니다.', delay: 3000 },
+                        { title: '내용 생성 중...', desc: '맞춤형 제안서 내용을 작성하고 있습니다.', delay: 5000 },
+                        { title: '품질 검증 중...', desc: '생성된 내용의 품질을 검증하고 있습니다.', delay: 8000 }
+                    ];
+                    
+                    let currentStep = 0;
+                    function updateProgress() {
+                        if (currentStep < steps.length && isSubmitting) {
+                            const step = steps[currentStep];
+                            progressTitle.textContent = step.title;
+                            progressDesc.textContent = step.desc;
+                            currentStep++;
+                            setTimeout(updateProgress, step.delay);
+                        }
+                    }
+                    setTimeout(updateProgress, 1000);
+                }
+            }
+            
+            // 실제 폼 제출 실행 - 이 부분이 핵심 수정사항
+            console.log('Actually submitting form to server...');
+            
+            // 10초 타임아웃 (실제 처리는 매우 빠름)
+            setTimeout(function() {
+                if (isSubmitting) {
+                    resetButton();
+                    // 실제로는 이미 완료되었을 가능성이 높으므로 페이지 새로고침 제안
+                    if (confirm('처리 시간이 예상보다 오래 걸리고 있습니다. 페이지를 새로고침하여 결과를 확인하시겠습니까?')) {
+                        window.location.reload();
+                    }
+                }
+            }, 10000);
+            
+            // 폼 제출을 실제로 허용 (return true)
+            return true;
+        }
+        
+        // 이벤트 리스너 직접 등록 (더 확실한 방법)
+        form.onsubmit = handleFormSubmit;
+        
+        // 추가로 addEventListener도 등록
+        form.addEventListener('submit', handleFormSubmit, false);
+        
+        // 버튼에 직접 클릭 이벤트도 등록 (백업)
+        generateBtn.onclick = function(e) {
+            console.log('Button clicked directly');
+            // submit button이므로 form이 자동 제출됨
+        };
+        
+        console.log('Form initialization completed');
+    }
+    
+    // DOM 로딩 상태 확인
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeProposalForm);
+    } else {
+        initializeProposalForm();
+    }
+})();
+</script>
+@endpush

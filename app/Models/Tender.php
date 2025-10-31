@@ -39,6 +39,7 @@ class Tender extends Model
         'category_id',
         'region',
         'status',
+        'is_favorite',
         'source_url',
         'detail_url',
         'collected_at',
@@ -91,6 +92,7 @@ class Tender extends Model
         'end_date' => 'date',
         'collected_at' => 'datetime',
         'metadata' => 'array',
+        'is_favorite' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -132,6 +134,22 @@ class Tender extends Model
     }
 
     /**
+     * 제안서들과의 관계
+     */
+    public function proposals(): HasMany
+    {
+        return $this->hasMany(Proposal::class, 'tender_id');
+    }
+
+    /**
+     * 멘션(메모)들과의 관계
+     */
+    public function mentions(): HasMany
+    {
+        return $this->hasMany(TenderMention::class, 'tender_id');
+    }
+
+    /**
      * 활성 상태 입찰공고 스코프
      */
     public function scopeActive($query)
@@ -145,6 +163,14 @@ class Tender extends Model
     public function scopeClosed($query)
     {
         return $query->where('status', 'closed');
+    }
+
+    /**
+     * 즐겨찾기 입찰공고 스코프
+     */
+    public function scopeFavorite($query)
+    {
+        return $query->where('is_favorite', true);
     }
 
     /**
@@ -195,34 +221,57 @@ class Tender extends Model
     }
 
     /**
-     * 마감일까지 남은 일수 계산
+     * 입찰 마감일까지 남은 일수 계산 (날짜 기준, 시간 무시)
      */
     public function getDaysRemainingAttribute(): ?int
     {
-        if (!$this->end_date) {
+        // 우선순위: bid_clse_dt (입찰마감일시) > end_date
+        $bidCloseDate = $this->bid_clse_dt;
+        $fallbackDate = $this->end_date;
+        
+        $targetDate = $bidCloseDate ?: $fallbackDate;
+        
+        if (!$targetDate) {
             return null;
         }
         
-        $endDate = Carbon::parse($this->end_date);
-        $today = Carbon::today();
+        // 날짜만 비교 (시간 무시)
+        $closeDate = Carbon::parse($targetDate)->startOfDay();
+        $today = Carbon::now()->startOfDay();
         
-        if ($endDate->isPast()) {
-            return 0;
+        // 날짜 기준으로만 비교
+        $diffDays = $today->diffInDays($closeDate, false);
+        
+        // 마감일이 오늘보다 과거인 경우
+        if ($closeDate->isBefore($today)) {
+            return -1; // 마감됨을 의미
         }
         
-        return $today->diffInDays($endDate);
+        // 오늘이면 0 (D-Day), 내일이면 1 (D-1)
+        return (int) $diffDays;
     }
 
     /**
-     * 마감 여부 확인
+     * 입찰 마감 여부 확인 (날짜 기준, 당일은 마감 아님)
      */
     public function getIsExpiredAttribute(): bool
     {
-        if (!$this->end_date) {
+        // 우선순위: bid_clse_dt (입찰마감일시) > end_date
+        $bidCloseDate = $this->bid_clse_dt;
+        $fallbackDate = $this->end_date;
+        
+        $targetDate = $bidCloseDate ?: $fallbackDate;
+        
+        if (!$targetDate) {
             return false;
         }
         
-        return Carbon::parse($this->end_date)->isPast();
+        // 날짜만 비교 (시간 무시) - 마감일 당일까지는 마감 아님
+        $closeDate = Carbon::parse($targetDate)->startOfDay();
+        $today = Carbon::now()->startOfDay();
+        
+        // 마감일이 오늘보다 과거일 때만 마감으로 처리
+        return $closeDate->isBefore($today);
     }
 
     /**
@@ -484,49 +533,54 @@ class Tender extends Model
     }
 
     /**
-     * 일정 기반 자동 상태 계산
+     * 일정 기반 자동 상태 계산 (날짜 기준)
      */
     public function getAutoStatusAttribute(): string
     {
-        $now = Carbon::now();
+        $today = Carbon::now()->startOfDay();
         
-        // 입찰 시작 전
-        if ($this->bid_begin_dt && $now->isBefore(Carbon::parse($this->bid_begin_dt))) {
-            return 'pending'; // 공고중
-        }
-        
-        // 입찰 진행 중 (입찰시작 ~ 입찰마감)
-        if ($this->bid_begin_dt && $this->bid_clse_dt) {
-            $bidStart = Carbon::parse($this->bid_begin_dt);
-            $bidEnd = Carbon::parse($this->bid_clse_dt);
-            
-            if ($now->isBetween($bidStart, $bidEnd)) {
-                return 'active'; // 진행중
+        // 입찰 시작일 기준 (날짜만 비교)
+        if ($this->bid_begin_dt) {
+            $bidStartDate = Carbon::parse($this->bid_begin_dt)->startOfDay();
+            if ($today->isBefore($bidStartDate)) {
+                return 'pending'; // 공고중
             }
         }
         
-        // 입찰 마감 후, 개찰 전
-        if ($this->bid_clse_dt && $this->openg_dt) {
-            $bidEnd = Carbon::parse($this->bid_clse_dt);
-            $opening = Carbon::parse($this->openg_dt);
+        // 개찰일자 우선 확인 (날짜만 비교)
+        if ($this->openg_dt) {
+            $openingDate = Carbon::parse($this->openg_dt)->startOfDay();
             
-            if ($now->isAfter($bidEnd) && $now->isBefore($opening)) {
+            if ($today->isAfter($openingDate)) {
+                // 재입찰 개찰이 있는 경우
+                if ($this->rbid_openg_dt) {
+                    $rebidOpeningDate = Carbon::parse($this->rbid_openg_dt)->startOfDay();
+                    if ($today->isAfter($rebidOpeningDate)) {
+                        return 'completed'; // 완료 (재입찰 개찰 후)
+                    }
+                }
+                return 'opened'; // 개찰완료
+            }
+            
+            // 개찰일이 오늘이면 개찰 당일
+            if ($today->isSameDay($openingDate)) {
+                return 'opened'; // 개찰완료
+            }
+        }
+        
+        // 입찰 마감일 확인 (날짜만 비교)
+        if ($this->bid_clse_dt) {
+            $bidEndDate = Carbon::parse($this->bid_clse_dt)->startOfDay();
+            
+            // 마감일이 오늘보다 과거면 마감
+            if ($today->isAfter($bidEndDate)) {
                 return 'closed'; // 마감
             }
-        }
-        
-        // 개찰 이후
-        if ($this->openg_dt && $now->isAfter(Carbon::parse($this->openg_dt))) {
-            // 재입찰 개찰이 있는 경우
-            if ($this->rbid_openg_dt && $now->isAfter(Carbon::parse($this->rbid_openg_dt))) {
-                return 'completed'; // 완료 (재입찰 개찰 후)
+            
+            // 마감일이 오늘이면 여전히 활성 (D-Day)
+            if ($today->isSameDay($bidEndDate)) {
+                return 'active'; // 진행중 (D-Day)
             }
-            return 'opened'; // 개찰완료
-        }
-        
-        // 기본값 (입찰마감 후)
-        if ($this->bid_clse_dt && $now->isAfter(Carbon::parse($this->bid_clse_dt))) {
-            return 'closed'; // 마감
         }
         
         return 'active'; // 기본값
@@ -545,6 +599,118 @@ class Tender extends Model
         }
         
         return false; // 변경사항 없음
+    }
+
+    /**
+     * D-Day 형식의 마감일 표시 문자열
+     */
+    public function getDdayDisplayAttribute(): string
+    {
+        $daysRemaining = $this->days_remaining;
+        
+        if ($daysRemaining === null) {
+            return '미정';
+        }
+        
+        if ($daysRemaining === -1) {
+            return '마감';
+        }
+        
+        if ($daysRemaining === 0) {
+            return 'D-Day';
+        }
+        
+        return 'D-' . $daysRemaining;
+    }
+
+    /**
+     * D-Day 색상 클래스 반환 (CSS 클래스 기반)
+     */
+    public function getDdayColorClassAttribute(): string
+    {
+        $daysRemaining = $this->days_remaining;
+        
+        if ($daysRemaining === null) {
+            return 'text-muted'; // 미정
+        }
+        
+        if ($daysRemaining === -1) {
+            return 'dday-display dday-expired'; // 마감
+        }
+        
+        if ($daysRemaining === 0) {
+            return 'dday-display dday-today'; // D-Day (빨간색, 깜박임)
+        }
+        
+        if ($daysRemaining <= 1) {
+            return 'dday-display dday-urgent'; // D-1 이하 (노란색)
+        }
+        
+        if ($daysRemaining <= 3) {
+            return 'dday-display dday-warning'; // D-3 이하 (주황색)
+        }
+        
+        return 'dday-display dday-normal'; // 여유있음 (녹색)
+    }
+
+    /**
+     * 실제 입찰 마감일시 반환 (포맷팅)
+     */
+    public function getFormattedBidCloseDateAttribute(): ?string
+    {
+        $bidCloseDate = $this->bid_clse_dt;
+        
+        if (!$bidCloseDate) {
+            return $this->end_date ? $this->end_date->format('Y-m-d') : null;
+        }
+        
+        return Carbon::parse($bidCloseDate)->format('Y-m-d H:i');
+    }
+
+    /**
+     * 세부업종코드 반환 (metadata에서 추출)
+     */
+    public function getClassificationCodeAttribute(): ?string
+    {
+        if (!$this->metadata) {
+            return null;
+        }
+        
+        $metadata = json_decode($this->metadata, true);
+        $code = $metadata['pubPrcrmntClsfcNo'] ?? null;
+        
+        // 배열인 경우 첫 번째 값 사용 (XML 파싱 시 배열이 될 수 있음)
+        if (is_array($code)) {
+            return empty($code) ? null : (string)$code[0];
+        }
+        
+        return empty($code) ? null : (string)$code;
+    }
+
+    /**
+     * 세부업종코드 설명 반환
+     */
+    public function getClassificationNameAttribute(): string
+    {
+        $code = $this->classification_code;
+        
+        if (!$code) {
+            return '미분류';
+        }
+
+        // 세부업종코드 매핑
+        $codeMap = [
+            '81112002' => '데이터처리서비스',
+            '81112299' => '소프트웨어유지및지원서비스',
+            '81111811' => '운영위탁서비스',
+            '81111899' => '정보시스템유지관리서비스',
+            '81112199' => '인터넷지원개발서비스',
+            '81111598' => '패키지소프트웨어개발및도입서비스',
+            '81111599' => '정보시스템개발서비스',
+            '81151699' => '공간정보DB구축서비스'
+        ];
+
+        return $codeMap[$code] ?? "기타({$code})";
     }
 
 }

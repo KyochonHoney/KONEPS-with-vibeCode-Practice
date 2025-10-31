@@ -13,10 +13,11 @@ return [
     */
 
     'analysis' => [
-        'provider' => env('AI_ANALYSIS_PROVIDER', 'openai'),
+        'provider' => env('AI_ANALYSIS_PROVIDER', 'mock'), // 실제 API 키 없을 시 mock 사용
         'cache_ttl' => env('AI_ANALYSIS_CACHE_TTL', 3600),
         'retry_attempts' => env('AI_ANALYSIS_RETRY_ATTEMPTS', 3),
         'timeout' => env('AI_ANALYSIS_TIMEOUT', 60),
+        'fallback_to_mock' => env('AI_FALLBACK_TO_MOCK', true), // API 실패 시 Mock 사용
     ],
 
     /*

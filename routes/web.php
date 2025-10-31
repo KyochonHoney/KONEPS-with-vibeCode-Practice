@@ -46,11 +46,16 @@ Route::middleware('auth')->group(function () {
             Route::get('/', [TenderController::class, 'index'])->name('index');
             Route::get('/collect', [TenderController::class, 'collect'])->name('collect');
             Route::post('/collect', [TenderController::class, 'executeCollection'])->name('execute_collection');
+            Route::get('/cleanup', [TenderController::class, 'cleanup'])->name('cleanup');
+            Route::post('/cleanup', [TenderController::class, 'executeCleanup'])->name('execute_cleanup');
             Route::get('/test-api', [TenderController::class, 'testApi'])->name('test_api');
             Route::get('/stats', [TenderController::class, 'dashboardStats'])->name('stats');
             Route::get('/{tender}', [TenderController::class, 'show'])->name('show');
             Route::delete('/{tender}', [TenderController::class, 'destroy'])->name('destroy');
             Route::patch('/{tender}/status', [TenderController::class, 'updateStatus'])->name('update_status');
+            Route::patch('/{tender}/toggle-favorite', [TenderController::class, 'toggleFavorite'])->name('toggle_favorite');
+            Route::post('/{tender}/mention', [TenderController::class, 'storeMention'])->name('store_mention');
+            Route::delete('/{tender}/mention', [TenderController::class, 'destroyMention'])->name('destroy_mention');
             Route::patch('/bulk/status', [TenderController::class, 'bulkUpdateStatus'])->name('bulk_update_status');
         });
         
@@ -95,5 +100,10 @@ Route::middleware('auth')->group(function () {
         });
     });
 });
+
+// 세종대왕 페이지 (인증 불필요)
+Route::get('/sejong', function () {
+    return view('sejong');
+})->name('sejong');
 
 // [END nara:web_routes]

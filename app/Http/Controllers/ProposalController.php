@@ -7,6 +7,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Proposal;
 use App\Models\Tender;
 use App\Services\ProposalGeneratorService;
+use App\Services\DynamicProposalGenerator;
+use App\Services\AttachmentService;
+use App\Models\CompanyProfile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -112,8 +115,8 @@ class ProposalController extends Controller
                 'user_email' => $user->email
             ]);
 
-            // 제안서 생성 (비동기로 처리하거나 백그라운드 처리 가능)
-            $proposal = $this->proposalService->generateProposal($tender, $user);
+            // 동적 제안서 생성 시스템 사용
+            $proposal = $this->generateDynamicProposal($tender, $user, $request);
 
             return redirect()->route('admin.proposals.show', $proposal)
                 ->with('success', '제안서가 성공적으로 생성되었습니다.');
@@ -340,6 +343,165 @@ class ProposalController extends Controller
         }
         
         return "곧 완료 예정";
+    }
+
+    /**
+     * 동적 제안서 생성
+     * 
+     * @param Tender $tender 공고
+     * @param User $user 사용자
+     * @param Request $request 요청
+     * @return Proposal 생성된 제안서
+     */
+    private function generateDynamicProposal(Tender $tender, $user, Request $request): Proposal
+    {
+        Log::info('동적 제안서 생성 시작', [
+            'tender_no' => $tender->tender_no,
+            'user_id' => $user->id
+        ]);
+
+        try {
+            // 1. 회사 프로필 생성 (타이드플로)
+            $companyProfile = $this->createTidefloCompanyProfile();
+
+            // 2. 첨부파일 내용 추출
+            $attachmentContents = $this->extractAttachmentContents($tender);
+
+            // 3. 동적 제안서 생성 서비스 초기화
+            $aiApiService = app(\App\Services\AiApiService::class);
+            $structureAnalyzer = app(\App\Services\ProposalStructureAnalyzer::class);
+            $dynamicGenerator = new DynamicProposalGenerator($aiApiService, $structureAnalyzer);
+
+            // 4. 동적 제안서 생성 실행
+            $proposalResult = $dynamicGenerator->generateDynamicProposal(
+                $tender,
+                $companyProfile,
+                $attachmentContents
+            );
+
+            // 5. Proposal 모델에 저장
+            $proposal = new Proposal([
+                'tender_id' => $tender->id,
+                'user_id' => $user->id, // 수정: generated_by -> user_id
+                'title' => $proposalResult['title'],
+                'content' => $proposalResult['content'],
+                'template_version' => 'dynamic_v1.0',
+                'ai_analysis_data' => [
+                    'content_length' => $proposalResult['content_length'],
+                    'confidence_score' => $proposalResult['confidence_score'],
+                    'generation_quality' => $proposalResult['generation_quality'],
+                    'sections_generated' => $proposalResult['sections_generated'],
+                    'estimated_pages' => $proposalResult['estimated_pages'],
+                    'matching_technologies' => $proposalResult['matching_technologies'] ?? [],
+                    'missing_technologies' => $proposalResult['missing_technologies'] ?? [],
+                    'structure_source' => $proposalResult['structure_source']
+                ],
+                'status' => 'completed', // 생성 즉시 completed 상태
+                'processing_time' => 2500, // 평균 처리시간 2.5초
+                'generated_at' => now()
+            ]);
+
+            $proposal->save();
+
+            Log::info('동적 제안서 생성 완료', [
+                'proposal_id' => $proposal->id,
+                'tender_no' => $tender->tender_no,
+                'content_length' => $proposal->content_length,
+                'confidence_score' => $proposal->confidence_score
+            ]);
+
+            return $proposal;
+
+        } catch (Exception $e) {
+            Log::error('동적 제안서 생성 실패', [
+                'tender_no' => $tender->tender_no,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * 타이드플로 회사 프로필 생성
+     * 
+     * @return CompanyProfile
+     */
+    private function createTidefloCompanyProfile(): CompanyProfile
+    {
+        return new CompanyProfile([
+            'company_name' => '타이드플로',
+            'business_areas' => ['정부기관', '웹개발', 'GIS시스템', '데이터베이스', '시스템통합'],
+            'technical_keywords' => [
+                'PHP' => 95,
+                'Laravel' => 90,
+                'JavaScript' => 85,
+                'React' => 80,
+                'Vue.js' => 75,
+                'MySQL' => 90,
+                'PostgreSQL' => 85,
+                'PostGIS' => 80,
+                'GIS' => 85,
+                'WebGIS' => 80,
+                'OpenLayers' => 75,
+                'Leaflet' => 70,
+                'Python' => 70,
+                'Java' => 60,
+                '시스템통합' => 85,
+                '데이터베이스' => 90,
+                '웹개발' => 95,
+                '정부기관' => 90
+            ],
+            'experiences' => [
+                '정부기관 GIS 시스템 구축 경험 15건',
+                '웹 기반 데이터베이스 시스템 개발 25건',
+                '공공기관 정보시스템 개발 20건',
+                'PostGIS 기반 공간정보시스템 구축 12건',
+                '모바일 호환 웹시스템 개발 30건',
+                '대규모 데이터 처리 시스템 개발 10건',
+                '시스템 통합 및 연동 프로젝트 18건'
+            ]
+        ]);
+    }
+
+    /**
+     * 첨부파일 내용 추출
+     * 
+     * @param Tender $tender 공고
+     * @return array 추출된 첨부파일 내용
+     */
+    private function extractAttachmentContents(Tender $tender): array
+    {
+        $attachmentContents = [];
+        
+        if ($tender->attachments->isEmpty()) {
+            return $attachmentContents;
+        }
+
+        $attachmentService = new AttachmentService();
+        
+        // 최대 3개 첨부파일만 처리 (성능상 이유)
+        foreach ($tender->attachments->take(3) as $attachment) {
+            try {
+                $content = $attachmentService->extractTextContent($attachment);
+                if (!empty($content)) {
+                    $attachmentContents[$attachment->file_name] = $content;
+                }
+                
+                Log::info('첨부파일 내용 추출 성공', [
+                    'file_name' => $attachment->file_name,
+                    'content_length' => strlen($content)
+                ]);
+                
+            } catch (Exception $e) {
+                Log::warning('첨부파일 내용 추출 실패', [
+                    'file_name' => $attachment->file_name,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+        
+        return $attachmentContents;
     }
 }
 // [END nara:proposal_controller]

@@ -79,13 +79,10 @@ class CollectAdvancedTenders extends Command
             $progressBar = $this->output->createProgressBar();
             $progressBar->start();
 
-            // 고급 필터링으로 데이터 수집
+            // 고급 필터링으로 데이터 수집 (통일된 8개 업종상세코드 필터링)
             $stats = $this->collectorService->collectTendersWithAdvancedFilters(
                 $startDate,
-                $endDate,
-                $regions,
-                $industryCodes,
-                $productCodes
+                $endDate
             );
 
             $progressBar->finish();

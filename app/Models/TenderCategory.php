@@ -55,6 +55,7 @@ class TenderCategory extends Model
             ['id' => 1, 'name' => '용역', 'code' => 'SERVICE', 'description' => '각종 용역 서비스'],
             ['id' => 2, 'name' => '공사', 'code' => 'CONSTRUCTION', 'description' => '건설 및 공사'],
             ['id' => 3, 'name' => '물품', 'code' => 'GOODS', 'description' => '물품 구매'],
+            ['id' => 4, 'name' => '기타', 'code' => 'OTHERS', 'description' => '업종상세코드 없음 또는 분류 불가'],
         ];
 
         foreach ($categories as $category) {
