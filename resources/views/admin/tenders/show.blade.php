@@ -29,7 +29,15 @@
                         <i class="bi {{ $tender->is_favorite ? 'bi-star-fill' : 'bi-star' }} me-1"></i>
                         {{ $tender->is_favorite ? '즐겨찾기' : '즐겨찾기 추가' }}
                     </button>
-                    <a href="{{ route('admin.tenders.index') }}" class="btn btn-secondary">
+                    <button type="button"
+                            class="btn btn-{{ $tender->is_unsuitable ? 'danger' : 'outline-danger' }} unsuitable-toggle-btn ms-2"
+                            data-tender-id="{{ $tender->id }}"
+                            data-is-unsuitable="{{ $tender->is_unsuitable ? '1' : '0' }}"
+                            title="{{ $tender->is_unsuitable ? '비적합 해제' : '비적합 표시' }}">
+                        <i class="bi {{ $tender->is_unsuitable ? 'bi-hand-thumbs-down-fill' : 'bi-hand-thumbs-down' }} me-1"></i>
+                        {{ $tender->is_unsuitable ? '비적합 공고' : '비적합 표시' }}
+                    </button>
+                    <a href="{{ route('admin.tenders.index') }}" class="btn btn-secondary ms-2">
                         <i class="bi bi-arrow-left me-1"></i>
                         목록으로
                     </a>
@@ -315,6 +323,82 @@
                         </div>
                     </div>
                     @endif
+
+                    <!-- 제안요청정보 파일 (크롤링으로 수집) -->
+                    @php
+                        $proposalFiles = $tender->attachments()->where('type', 'proposal')->get();
+                    @endphp
+                    @if($proposalFiles->count() > 0)
+                    <div class="card shadow mb-4 border-info">
+                        <div class="card-header py-3 bg-info bg-opacity-10">
+                            <h6 class="m-0 font-weight-bold text-info">
+                                <i class="bi bi-file-text me-2"></i>제안요청정보 파일 ({{ $proposalFiles->count() }}건)
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="list-group">
+                                @foreach($proposalFiles as $file)
+                                <div class="list-group-item d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex align-items-center mb-1">
+                                            @if($file->file_extension === 'hwp')
+                                                <i class="bi bi-file-earmark-code text-success me-2"></i>
+                                            @elseif($file->file_extension === 'pdf')
+                                                <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+                                            @elseif(in_array($file->file_extension, ['doc', 'docx']))
+                                                <i class="bi bi-file-earmark-word text-primary me-2"></i>
+                                            @elseif(in_array($file->file_extension, ['xls', 'xlsx']))
+                                                <i class="bi bi-file-earmark-excel text-success me-2"></i>
+                                            @else
+                                                <i class="bi bi-file-earmark text-secondary me-2"></i>
+                                            @endif
+                                            <strong>{{ $file->file_name }}</strong>
+                                        </div>
+                                        @if($file->doc_name)
+                                            <small class="text-muted d-block">
+                                                <i class="bi bi-tag me-1"></i>{{ $file->doc_name }}
+                                            </small>
+                                        @endif
+                                        <small class="text-muted">
+                                            <i class="bi bi-clock me-1"></i>{{ $file->created_at->format('Y-m-d H:i') }}
+                                        </small>
+                                    </div>
+                                    <div class="text-end ms-3">
+                                        <span class="{{ $file->download_status_class }} mb-2 d-block">
+                                            {{ $file->download_status_label }}
+                                        </span>
+                                        @if($file->download_url)
+                                            <a href="{{ $file->download_url }}" target="_blank" class="btn btn-sm btn-outline-info">
+                                                <i class="bi bi-download me-1"></i>다운로드
+                                            </a>
+                                        @else
+                                            <button class="btn btn-sm btn-outline-secondary" disabled>
+                                                <i class="bi bi-x-circle me-1"></i>링크없음
+                                            </button>
+                                        @endif
+                                    </div>
+                                </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
+                    @else
+                    <div class="card shadow mb-4 border-warning">
+                        <div class="card-header py-3 bg-warning bg-opacity-10">
+                            <h6 class="m-0 font-weight-bold text-warning">
+                                <i class="bi bi-file-text me-2"></i>제안요청정보 파일
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-warning mb-0">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                제안요청정보 파일이 아직 수집되지 않았습니다.
+                                <br>
+                                <small class="text-muted">아래 "제안요청정보 파일 수집" 버튼을 클릭하여 파일을 수집하세요.</small>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
                 </div>
 
                 <!-- 우측 컬럼 -->
@@ -378,21 +462,7 @@
                         </div>
                         <div class="card-body">
                             @php $budgetDetails = $tender->formatted_budget_details @endphp
-                            
-                            @if($budgetDetails['assign_budget'])
-                            <div class="mb-3">
-                                <strong>배정예산:</strong><br>
-                                <span class="h5 text-primary">{{ $budgetDetails['assign_budget'] }}</span>
-                            </div>
-                            @endif
-                            
-                            @if($budgetDetails['vat'])
-                            <div class="mb-3">
-                                <strong>부가세:</strong><br>
-                                <span class="h6 text-info">{{ $budgetDetails['vat'] }}</span>
-                            </div>
-                            @endif
-                            
+
                             @if($budgetDetails['total'])
                             <div class="mb-3">
                                 <strong>총 예산 (VAT 포함):</strong><br>
@@ -401,7 +471,21 @@
                             </div>
                             @endif
 
-                            @if(!$budgetDetails['assign_budget'] && $tender->formatted_budget !== '미공개')
+                            @if($budgetDetails['assign_budget'])
+                            <div class="mb-3">
+                                <strong>배정예산 (VAT 제외):</strong><br>
+                                <span class="h5 text-primary">{{ $budgetDetails['assign_budget'] }}</span>
+                            </div>
+                            @endif
+
+                            @if($budgetDetails['vat'])
+                            <div class="mb-3">
+                                <strong>부가세:</strong><br>
+                                <span class="h6 text-info">{{ $budgetDetails['vat'] }}</span>
+                            </div>
+                            @endif
+
+                            @if(!$budgetDetails['total'] && $tender->formatted_budget !== '미공개')
                             <div class="mb-3">
                                 <strong>예산:</strong><br>
                                 <span class="h5 text-success">{{ $tender->formatted_budget }}</span>
@@ -466,16 +550,20 @@
                                     <i class="bi bi-collection me-1"></i>
                                     첨부파일 정보 수집
                                 </button>
+                                <button type="button" class="btn btn-outline-info" id="collectProposalFilesBtn">
+                                    <i class="bi bi-file-text me-1"></i>
+                                    제안요청정보 파일 수집
+                                </button>
                                 <button type="button" class="btn btn-warning" id="downloadAllAsHwpBtn">
                                     <i class="bi bi-file-earmark-text me-1"></i>
                                     모든 파일을 한글로 변환
                                 </button>
-                                <a href="{{ route('admin.attachments.download_hwp_zip', $tender) }}" 
+                                <a href="{{ route('admin.attachments.download_hwp_zip', $tender) }}"
                                    class="btn btn-success" id="downloadHwpZipBtn">
                                     <i class="bi bi-file-earmark-zip me-1"></i>
                                     변환된 파일 ZIP 다운로드
                                 </a>
-                                <a href="{{ route('admin.attachments.index', ['tender_id' => $tender->id]) }}" 
+                                <a href="{{ route('admin.attachments.index', ['tender_id' => $tender->id]) }}"
                                    class="btn btn-outline-info">
                                     <i class="bi bi-files me-1"></i>
                                     첨부파일 목록 보기
@@ -845,9 +933,9 @@ $(document).ready(function() {
     $('#collectAttachmentsBtn').click(function() {
         const $btn = $(this);
         const originalText = $btn.html();
-        
+
         $btn.prop('disabled', true).html('<i class="spinner-border spinner-border-sm me-1"></i>수집 중...');
-        
+
         $.ajax({
             url: '{{ route("admin.attachments.collect", $tender) }}',
             method: 'POST',
@@ -860,6 +948,42 @@ $(document).ready(function() {
             error: function(xhr) {
                 const response = xhr.responseJSON;
                 alert(response ? response.message : '첨부파일 수집 실패');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html(originalText);
+            }
+        });
+    });
+
+    // 제안요청정보 파일 수집
+    $('#collectProposalFilesBtn').click(function() {
+        if (!confirm('제안요청정보 섹션의 파일을 크롤링하시겠습니까?\n\n페이지를 분석하여 제안요청서, 과업지시서 등을 자동으로 수집합니다.')) {
+            return;
+        }
+
+        const $btn = $(this);
+        const originalText = $btn.html();
+
+        $btn.prop('disabled', true).html('<i class="spinner-border spinner-border-sm me-1"></i>크롤링 중...');
+
+        $.ajax({
+            url: '{{ route("admin.tenders.crawl_proposal_files", $tender) }}',
+            method: 'POST',
+            data: {
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert(`✅ 성공!\n\n${response.message}\n발견: ${response.files_found}개\n저장: ${response.files_downloaded}개`);
+                    // 페이지 새로고침하여 새로 수집된 파일 표시
+                    location.reload();
+                } else {
+                    alert(`❌ 실패\n\n${response.message}`);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                alert(response ? response.message : '제안요청정보 파일 크롤링 실패');
             },
             complete: function() {
                 $btn.prop('disabled', false).html(originalText);
@@ -956,6 +1080,48 @@ $(document).ready(function() {
             error: function(xhr) {
                 const response = xhr.responseJSON;
                 showToast('danger', response?.message || '즐겨찾기 토글에 실패했습니다.');
+            }
+        });
+    });
+
+    // 비적합 공고 토글 버튼
+    $('.unsuitable-toggle-btn').click(function() {
+        const $btn = $(this);
+        const tenderId = $btn.data('tender-id');
+        const isUnsuitable = $btn.data('is-unsuitable') === '1';
+
+        $.ajax({
+            url: `/admin/tenders/${tenderId}/toggle-unsuitable`,
+            method: 'PATCH',
+            data: {
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                if (response.success) {
+                    // 버튼 스타일 및 텍스트 업데이트
+                    const $icon = $btn.find('i');
+
+                    if (response.is_unsuitable) {
+                        $btn.removeClass('btn-outline-danger').addClass('btn-danger');
+                        $icon.removeClass('bi-hand-thumbs-down').addClass('bi-hand-thumbs-down-fill');
+                        $btn.attr('title', '비적합 해제');
+                        $btn.contents().last()[0].textContent = ' 비적합 공고';
+                        $btn.data('is-unsuitable', '1');
+                    } else {
+                        $btn.removeClass('btn-danger').addClass('btn-outline-danger');
+                        $icon.removeClass('bi-hand-thumbs-down-fill').addClass('bi-hand-thumbs-down');
+                        $btn.attr('title', '비적합 표시');
+                        $btn.contents().last()[0].textContent = ' 비적합 표시';
+                        $btn.data('is-unsuitable', '0');
+                    }
+
+                    // 성공 메시지
+                    showToast('success', response.message);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showToast('danger', response?.message || '비적합 토글에 실패했습니다.');
             }
         });
     });

@@ -58,16 +58,9 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials, $remember)) {
             $request->session()->regenerate();
-            
-            // 사용자 역할에 따른 리다이렉션
-            $user = Auth::user();
-            if ($user->isSuperAdmin()) {
-                return redirect()->intended('/admin/dashboard');
-            } elseif ($user->isAdmin()) {
-                return redirect()->intended('/admin/dashboard');
-            } else {
-                return redirect()->intended('/dashboard');
-            }
+
+            // 모든 사용자는 관리자 대시보드로 리다이렉션
+            return redirect()->intended('/admin/dashboard');
         }
 
         return redirect()->back()->withErrors([
@@ -114,12 +107,10 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
-        // 기본 역할 할당 (일반 사용자)
-        $user->assignRole('user');
-
+        // 모든 사용자가 자동으로 관리자 (별도 역할 할당 불필요)
         Auth::login($user);
 
-        return redirect('/dashboard')->with('success', '회원가입이 완료되었습니다.');
+        return redirect('/admin/dashboard')->with('success', '회원가입이 완료되었습니다.');
     }
 
     /**

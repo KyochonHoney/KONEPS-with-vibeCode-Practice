@@ -80,32 +80,11 @@
                     <div class="alert alert-info mb-3">
                         <small>
                             <i class="bi bi-lightbulb me-1"></i>
-                            개발 단계에서만 표시됩니다. 아래 계정으로 테스트하세요.
+                            개발 단계에서만 표시됩니다. 관리자 계정으로 테스트하세요.
                         </small>
                     </div>
 
                     <div class="row g-3">
-                        <div class="col-12">
-                            <div class="border rounded p-3 mb-2 bg-light">
-                                <h6 class="text-primary mb-2">
-                                    <i class="bi bi-person me-1"></i>
-                                    일반 사용자
-                                </h6>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <div><strong>이메일:</strong> test@nara.com</div>
-                                        <div><strong>비밀번호:</strong> password123</div>
-                                    </div>
-                                    <button type="button" 
-                                            class="btn btn-sm btn-outline-primary quick-login"
-                                            data-email="test@nara.com" 
-                                            data-password="password123">
-                                        빠른 로그인
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
                         <div class="col-12">
                             <div class="border rounded p-3 mb-2 bg-light">
                                 <h6 class="text-success mb-2">

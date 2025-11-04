@@ -4,6 +4,12 @@
 @section('title', '입찰공고 관리')
 
 @section('content')
+<style>
+    /* 미묘한 배경색 */
+    .row-favorite {
+        background-color: rgba(255, 245, 200, 0.5) !important; /* 연한 노랑 */
+    }
+</style>
 <div class="container-fluid">
     <div class="row">
         <div class="col-12">
@@ -168,7 +174,14 @@
                                     <input class="form-check-input" type="checkbox" id="favorites_only" name="favorites_only" value="1"
                                            {{ request('favorites_only') == '1' ? 'checked' : '' }}>
                                     <label class="form-check-label" for="favorites_only">
-                                        <i class="bi bi-star-fill text-warning"></i> 즐겨찾기만 보기
+                                        <i class="bi bi-star-fill text-warning"></i> 즐겨찾기
+                                    </label>
+                                </div>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="has_mention" name="has_mention" value="1"
+                                           {{ request('has_mention') == '1' ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="has_mention">
+                                        <i class="bi bi-chat-left-text-fill text-info"></i> 메모
                                     </label>
                                 </div>
                             </div>
@@ -195,14 +208,19 @@
                         </div>
                         <div class="row">
                             <div class="col-md-2 mb-3">
-                                <label for="start_date" class="form-label">시작일</label>
-                                <input type="date" class="form-control" id="start_date" name="start_date" 
-                                       value="{{ request('start_date') }}">
+                                <label for="date_type" class="form-label">날짜 유형</label>
+                                <select class="form-select" id="date_type" name="date_type">
+                                    <option value="">선택안함</option>
+                                    <option value="deadline" {{ request('date_type') == 'deadline' ? 'selected' : '' }}>마감일</option>
+                                    <option value="registered" {{ request('date_type') == 'registered' ? 'selected' : '' }}>등록일시</option>
+                                </select>
                             </div>
-                            <div class="col-md-2 mb-3">
-                                <label for="end_date" class="form-label">종료일</label>
-                                <input type="date" class="form-control" id="end_date" name="end_date" 
-                                       value="{{ request('end_date') }}">
+                            <div class="col-md-3 mb-3">
+                                <label for="date_range" class="form-label">기간 선택</label>
+                                <input type="text" class="form-control" id="date_range" name="date_range"
+                                       value="{{ request('date_range') }}" placeholder="날짜 범위 선택">
+                                <input type="hidden" id="date_start" name="date_start" value="{{ request('date_start') }}">
+                                <input type="hidden" id="date_end" name="date_end" value="{{ request('date_end') }}">
                             </div>
                             <div class="col-md-4 mb-3 d-flex align-items-end">
                                 <a href="{{ route('admin.tenders.index') }}" class="btn btn-outline-secondary">
@@ -232,11 +250,15 @@
                                         <th width="3%">
                                             <i class="bi bi-star-fill text-warning" title="즐겨찾기"></i>
                                         </th>
-                                        <th width="10%">공고번호</th>
-                                        <th width="33%">제목</th>
-                                        <th width="14%">기관</th>
-                                        <th width="10%">예산</th>
-                                        <th width="10%">마감일</th>
+                                        <th width="3%">
+                                            <i class="bi bi-chat-left-text-fill text-info" title="메모"></i>
+                                        </th>
+                                        <th width="9%">공고번호</th>
+                                        <th width="26%">제목</th>
+                                        <th width="12%">기관</th>
+                                        <th width="9%">예산</th>
+                                        <th width="9%">등록일시</th>
+                                        <th width="9%">마감일</th>
                                         <th width="7%">상태</th>
                                         <th width="7%">AI 분석</th>
                                         <th width="6%">액션</th>
@@ -244,7 +266,7 @@
                                 </thead>
                                 <tbody>
                                     @foreach($tenders as $tender)
-                                        <tr>
+                                        <tr class="{{ $tender->is_favorite ? 'row-favorite' : '' }}">
                                             <td>
                                                 <input type="checkbox" class="tender-checkbox" value="{{ $tender->id }}">
                                             </td>
@@ -257,6 +279,21 @@
                                                     <i class="bi {{ $tender->is_favorite ? 'bi-star-fill text-warning' : 'bi-star text-muted' }}"
                                                        style="font-size: 1.2rem; cursor: pointer;"></i>
                                                 </button>
+                                            </td>
+                                            <td class="text-center">
+                                                @php
+                                                    $mention = $tender->mentions()->where('user_id', auth()->id())->first();
+                                                    $hasMention = $mention && !empty(trim($mention->mention));
+                                                @endphp
+                                                @if($hasMention)
+                                                    <i class="bi bi-chat-left-text-fill text-info"
+                                                       style="font-size: 1.2rem;"
+                                                       title="메모 있음"></i>
+                                                @else
+                                                    <i class="bi bi-chat-left-text text-muted"
+                                                       style="font-size: 1.2rem;"
+                                                       title="메모 없음"></i>
+                                                @endif
                                             </td>
                                             <td>
                                                 <small class="text-muted">{{ $tender->tender_no }}</small>
@@ -276,6 +313,15 @@
                                             </td>
                                             <td>{{ $tender->agency }}</td>
                                             <td>{{ $tender->formatted_budget }}</td>
+                                            <td>
+                                                @if($tender->start_date)
+                                                    <small>{{ \Carbon\Carbon::parse($tender->start_date)->format('Y-m-d') }}</small>
+                                                    <br>
+                                                    <small class="text-muted">{{ \Carbon\Carbon::parse($tender->start_date)->format('H:i') }}</small>
+                                                @else
+                                                    <span class="text-muted">-</span>
+                                                @endif
+                                            </td>
                                             <td>
                                                 @if($tender->formatted_bid_close_date)
                                                     {{ $tender->formatted_bid_close_date }}
@@ -468,8 +514,58 @@
 @endpush
 
 @push('scripts')
+<!-- Date Range Picker CSS & JS -->
+<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.css" />
+<script type="text/javascript" src="https://cdn.jsdelivr.net/momentjs/latest/moment.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.min.js"></script>
+
 <script>
 $(document).ready(function() {
+    // Date Range Picker 초기화
+    $('#date_range').daterangepicker({
+        autoUpdateInput: false,
+        locale: {
+            format: 'YYYY-MM-DD',
+            separator: ' ~ ',
+            applyLabel: '적용',
+            cancelLabel: '취소',
+            fromLabel: '시작',
+            toLabel: '종료',
+            customRangeLabel: '직접선택',
+            weekLabel: 'W',
+            daysOfWeek: ['일', '월', '화', '수', '목', '금', '토'],
+            monthNames: ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'],
+            firstDay: 0
+        },
+        ranges: {
+            '오늘': [moment(), moment()],
+            '어제': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+            '최근 7일': [moment().subtract(6, 'days'), moment()],
+            '최근 30일': [moment().subtract(29, 'days'), moment()],
+            '이번 달': [moment().startOf('month'), moment().endOf('month')],
+            '지난 달': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+        }
+    });
+
+    // 날짜 선택 시
+    $('#date_range').on('apply.daterangepicker', function(ev, picker) {
+        $(this).val(picker.startDate.format('YYYY-MM-DD') + ' ~ ' + picker.endDate.format('YYYY-MM-DD'));
+        $('#date_start').val(picker.startDate.format('YYYY-MM-DD'));
+        $('#date_end').val(picker.endDate.format('YYYY-MM-DD'));
+    });
+
+    // 취소 시
+    $('#date_range').on('cancel.daterangepicker', function(ev, picker) {
+        $(this).val('');
+        $('#date_start').val('');
+        $('#date_end').val('');
+    });
+
+    // 페이지 로드 시 기존 값이 있으면 표시
+    @if(request('date_start') && request('date_end'))
+        $('#date_range').val('{{ request("date_start") }} ~ {{ request("date_end") }}');
+    @endif
+
     // 전체 선택 체크박스
     $('#selectAll').change(function() {
         $('.tender-checkbox').prop('checked', $(this).prop('checked'));
@@ -719,16 +815,22 @@ $(document).ready(function() {
                 if (response.success) {
                     // 별표 아이콘 업데이트
                     const $icon = $btn.find('i');
+                    const $row = $btn.closest('tr');
+
                     if (response.is_favorite) {
                         $icon.removeClass('bi-star text-muted')
                              .addClass('bi-star-fill text-warning');
                         $btn.attr('title', '즐겨찾기 제거');
                         $btn.data('is-favorite', '1');
+                        // 행에 미묘한 회색-노랑 배경 추가
+                        $row.addClass('row-favorite');
                     } else {
                         $icon.removeClass('bi-star-fill text-warning')
                              .addClass('bi-star text-muted');
                         $btn.attr('title', '즐겨찾기 추가');
                         $btn.data('is-favorite', '0');
+                        // 즐겨찾기 배경 제거
+                        $row.removeClass('row-favorite');
                     }
 
                     // 토스트 메시지 (선택사항)
@@ -741,6 +843,7 @@ $(document).ready(function() {
             }
         });
     });
+
 });
 </script>
 @endpush

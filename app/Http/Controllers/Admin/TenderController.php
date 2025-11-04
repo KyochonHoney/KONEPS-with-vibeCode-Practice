@@ -8,6 +8,7 @@ use App\Models\Tender;
 use App\Models\TenderMention;
 use App\Services\TenderCollectorService;
 use App\Services\NaraApiService;
+use App\Services\ProposalFileCrawlerService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\View\View;
@@ -68,17 +69,35 @@ class TenderController extends Controller
             }
         }
 
-        if ($request->filled('start_date')) {
-            $query->where('start_date', '>=', $request->get('start_date'));
-        }
+        // 날짜 범위 필터 (date_type + date_start/date_end)
+        if ($request->filled('date_type') && $request->filled('date_start') && $request->filled('date_end')) {
+            $dateType = $request->get('date_type');
+            $dateStart = $request->get('date_start');
+            $dateEnd = $request->get('date_end');
 
-        if ($request->filled('end_date')) {
-            $query->where('end_date', '<=', $request->get('end_date'));
+            if ($dateType === 'deadline') {
+                // 마감일 기준 (bid_clse_dt)
+                $query->whereDate('bid_clse_dt', '>=', $dateStart)
+                      ->whereDate('bid_clse_dt', '<=', $dateEnd);
+            } elseif ($dateType === 'registered') {
+                // 등록일시 기준 (rgst_dt)
+                $query->whereDate('rgst_dt', '>=', $dateStart)
+                      ->whereDate('rgst_dt', '<=', $dateEnd);
+            }
         }
 
         // 즐겨찾기 필터
         if ($request->filled('favorites_only') && $request->get('favorites_only') === '1') {
             $query->where('is_favorite', true);
+        }
+
+        // 메모 있는 공고만 필터
+        if ($request->filled('has_mention') && $request->get('has_mention') === '1') {
+            $query->whereHas('mentions', function($q) {
+                $q->where('user_id', auth()->id())
+                  ->whereNotNull('mention')
+                  ->where('mention', '!=', '');
+            });
         }
 
         $tenders = $query->latest('collected_at')
@@ -521,6 +540,7 @@ class TenderController extends Controller
         }
     }
 
+
     /**
      * 멘션(메모) 저장 또는 업데이트
      *
@@ -588,6 +608,31 @@ class TenderController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => '메모 삭제 중 오류가 발생했습니다: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * 제안요청정보 파일 크롤링
+     *
+     * @param Tender $tender
+     * @return JsonResponse
+     */
+    public function crawlProposalFiles(Tender $tender): JsonResponse
+    {
+        try {
+            $crawler = new ProposalFileCrawlerService();
+            $result = $crawler->crawlProposalFiles($tender);
+
+            return response()->json($result);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '크롤링 중 오류 발생: ' . $e->getMessage(),
+                'files_found' => 0,
+                'files_downloaded' => 0,
+                'errors' => [$e->getMessage()]
             ], 500);
         }
     }

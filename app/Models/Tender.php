@@ -40,6 +40,7 @@ class Tender extends Model
         'region',
         'status',
         'is_favorite',
+        'is_unsuitable',
         'source_url',
         'detail_url',
         'collected_at',
@@ -93,6 +94,7 @@ class Tender extends Model
         'collected_at' => 'datetime',
         'metadata' => 'array',
         'is_favorite' => 'boolean',
+        'is_unsuitable' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -171,6 +173,14 @@ class Tender extends Model
     public function scopeFavorite($query)
     {
         return $query->where('is_favorite', true);
+    }
+
+    /**
+     * 비적합 입찰공고 스코프 (회사 기술과 맞지 않음)
+     */
+    public function scopeUnsuitable($query)
+    {
+        return $query->where('is_unsuitable', true);
     }
 
     /**
@@ -425,16 +435,22 @@ class Tender extends Model
 
     /**
      * 예산 상세 정보 (포맷팅된)
+     *
+     * 나라장터 API 구조:
+     * - asign_bdgt_amt: 부가세 포함 총 예산
+     * - vat_amount: 부가세 금액
+     * - 배정예산(순수): 총 예산 - 부가세
      */
     public function getFormattedBudgetDetailsAttribute(): array
     {
-        $assignBudget = $this->asign_bdgt_amt ? (int)$this->asign_bdgt_amt : 0;
+        $totalBudget = $this->asign_bdgt_amt ? (int)$this->asign_bdgt_amt : 0;  // 부가세 포함 총액
         $vat = $this->vat_amount ? (int)$this->vat_amount : 0;
-        
+        $netBudget = $totalBudget - $vat;  // 순수 배정예산 (부가세 제외)
+
         return [
-            'assign_budget' => $assignBudget > 0 ? number_format($assignBudget) . '원' : null,
+            'total' => $totalBudget > 0 ? number_format($totalBudget) . '원' : null,
+            'assign_budget' => $netBudget > 0 ? number_format($netBudget) . '원' : null,
             'vat' => $vat > 0 ? number_format($vat) . '원' : null,
-            'total' => ($assignBudget + $vat) > 0 ? number_format($assignBudget + $vat) . '원' : null,
         ];
     }
 
