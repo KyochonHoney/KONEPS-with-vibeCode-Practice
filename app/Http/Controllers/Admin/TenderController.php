@@ -540,6 +540,222 @@ class TenderController extends Controller
         }
     }
 
+    /**
+     * 비적합 상태 토글
+     *
+     * @param Tender $tender
+     * @return JsonResponse
+     */
+    public function toggleUnsuitable(Tender $tender): JsonResponse
+    {
+        try {
+            $tender->is_unsuitable = !$tender->is_unsuitable;
+            $tender->save();
+
+            $message = $tender->is_unsuitable
+                ? '비적합으로 표시되었습니다.'
+                : '적합으로 표시되었습니다.';
+
+            return response()->json([
+                'success' => true,
+                'is_unsuitable' => $tender->is_unsuitable,
+                'message' => $message
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '비적합 표시 토글 중 오류가 발생했습니다: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * "상주" 단어 검사 (모든 첨부파일 다운로드 및 파싱)
+     *
+     * @param Tender $tender
+     * @return JsonResponse
+     */
+    public function checkSangju(Tender $tender): JsonResponse
+    {
+        try {
+            $hasSangju = false;
+            $foundInFiles = [];
+            $totalFiles = 0;
+            $checkedFiles = 0;
+
+            // 1. 제안요청정보 파일 검사 (Attachment 모델 - proposal_files)
+            $proposalAttachments = $tender->attachments()->where('download_status', 'completed')->get();
+
+            foreach ($proposalAttachments as $attachment) {
+                $totalFiles++;
+                $filePath = $attachment->local_path;
+
+                // 파일 경로 확인 (두 경로 모두 체크)
+                $fullPath = storage_path('app/' . $filePath);
+                if (!file_exists($fullPath)) {
+                    $fullPath = storage_path('app/private/' . $filePath);
+                }
+
+                if (!file_exists($fullPath)) {
+                    continue; // 파일이 없으면 건너뛰기
+                }
+
+                // HWP 파일만 검사
+                $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+                if ($extension !== 'hwp') {
+                    continue;
+                }
+
+                $checkedFiles++;
+
+                // HWP 파일 텍스트 추출 및 "상주" 검색
+                $scriptPath = base_path('scripts/extract_hwp_text.py');
+                $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
+                $extractedText = shell_exec($command);
+
+                // "상주" 단어 검색 (대소문자 구분 없음)
+                if ($extractedText && mb_stripos($extractedText, '상주') !== false) {
+                    $hasSangju = true;
+                    $foundInFiles[] = ($attachment->file_name ?: $attachment->original_name) . ' (제안요청정보)';
+                }
+            }
+
+            // 2. 나라장터 첨부파일 다운로드 및 검사
+            $attachmentFiles = $tender->attachment_files;
+
+            if (is_array($attachmentFiles) && !empty($attachmentFiles)) {
+                foreach ($attachmentFiles as $fileInfo) {
+                    $totalFiles++;
+
+                    // 파일명과 다운로드 URL 확인
+                    $fileName = $fileInfo['name'] ?? '첨부파일';
+                    $downloadUrl = $fileInfo['url'] ?? null;
+
+                    if (!$downloadUrl) {
+                        continue;
+                    }
+
+                    // 파일 확장자 확인
+                    $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+
+                    // 텍스트 추출 가능한 파일만 처리 (hwp, pdf, doc, docx, txt)
+                    if (!in_array($extension, ['hwp', 'pdf', 'doc', 'docx', 'txt'])) {
+                        continue;
+                    }
+
+                    try {
+                        // 임시 파일 경로
+                        $tempDir = storage_path('app/temp_sangju_check/' . $tender->id);
+                        if (!file_exists($tempDir)) {
+                            mkdir($tempDir, 0755, true);
+                        }
+
+                        $tempFilePath = $tempDir . '/' . $fileName;
+
+                        // 파일 다운로드 (G2B 서버는 브라우저 헤더 필요)
+                        $response = \Illuminate\Support\Facades\Http::withHeaders([
+                            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Referer' => 'https://www.g2b.go.kr/',
+                            'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                            'Accept-Language' => 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                        ])
+                        ->timeout(30)
+                        ->get($downloadUrl);
+
+                        if (!$response->successful()) {
+                            \Log::warning('G2B 첨부파일 다운로드 실패', [
+                                'tender_id' => $tender->id,
+                                'file_name' => $fileName,
+                                'status' => $response->status(),
+                                'url' => $downloadUrl
+                            ]);
+                            continue; // 다운로드 실패 시 건너뛰기
+                        }
+
+                        file_put_contents($tempFilePath, $response->body());
+                        $checkedFiles++;
+
+                        // 파일 형식별 텍스트 추출
+                        $extractedText = null;
+
+                        if ($extension === 'hwp') {
+                            // HWP 파일 - Python 스크립트 사용
+                            $scriptPath = base_path('scripts/extract_hwp_text.py');
+                            $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($tempFilePath) . " 2>&1";
+                            $extractedText = shell_exec($command);
+                        } elseif ($extension === 'pdf') {
+                            // PDF 파일 - pdftotext 사용
+                            $command = "pdftotext " . escapeshellarg($tempFilePath) . " - 2>&1";
+                            $extractedText = shell_exec($command);
+                        } elseif (in_array($extension, ['doc', 'docx'])) {
+                            // DOC/DOCX 파일 - antiword 또는 catdoc 사용
+                            if ($extension === 'doc') {
+                                $command = "antiword " . escapeshellarg($tempFilePath) . " 2>&1";
+                            } else {
+                                $command = "docx2txt " . escapeshellarg($tempFilePath) . " - 2>&1";
+                            }
+                            $extractedText = shell_exec($command);
+                        } elseif ($extension === 'txt') {
+                            // 텍스트 파일 - 직접 읽기
+                            $extractedText = file_get_contents($tempFilePath);
+                        }
+
+                        // "상주" 단어 검색
+                        if ($extractedText && mb_stripos($extractedText, '상주') !== false) {
+                            $hasSangju = true;
+                            $foundInFiles[] = $fileName . ' (첨부파일)';
+                        }
+
+                        // 임시 파일 삭제
+                        @unlink($tempFilePath);
+
+                    } catch (\Exception $e) {
+                        // 개별 파일 처리 오류는 무시하고 계속 진행
+                        continue;
+                    }
+                }
+
+                // 임시 디렉토리 삭제
+                $tempDir = storage_path('app/temp_sangju_check/' . $tender->id);
+                if (file_exists($tempDir)) {
+                    @rmdir($tempDir);
+                }
+            }
+
+            // 검사할 파일이 없는 경우
+            if ($totalFiles === 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '검사할 첨부파일이 없습니다.'
+                ]);
+            }
+
+            // "상주"가 발견되면 비적합으로 자동 표시
+            if ($hasSangju) {
+                $tender->is_unsuitable = true;
+                $tender->save();
+
+                return response()->json([
+                    'success' => true,
+                    'has_sangju' => true,
+                    'message' => '"상주" 단어가 발견되어 비적합으로 표시했습니다. (검사: ' . $checkedFiles . '/' . $totalFiles . '개 파일, 발견: ' . implode(', ', $foundInFiles) . ')'
+                ]);
+            } else {
+                return response()->json([
+                    'success' => true,
+                    'has_sangju' => false,
+                    'message' => '모든 첨부파일에서 "상주" 단어를 찾을 수 없습니다. (검사: ' . $checkedFiles . '/' . $totalFiles . '개 파일) 이 공고는 적합합니다.'
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '"상주" 검사 중 오류가 발생했습니다: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 
     /**
      * 멘션(메모) 저장 또는 업데이트
@@ -665,6 +881,57 @@ class TenderController extends Controller
             // 4. 공고 자체 삭제
             $tender->delete();
         });
+    }
+
+    /**
+     * 나라장터 첨부파일 프록시 다운로드
+     *
+     * 나라장터 파일은 직접 접근이 불가능하므로 서버에서 대신 다운로드하여 사용자에게 전달
+     *
+     * @param Tender $tender
+     * @param int $seq
+     * @return \Symfony\Component\HttpFoundation\StreamedResponse
+     */
+    public function downloadAttachment(Tender $tender, int $seq)
+    {
+        try {
+            // 첨부파일 정보 조회
+            $attachmentFiles = $tender->attachment_files;
+            $file = collect($attachmentFiles)->firstWhere('seq', $seq);
+
+            if (!$file) {
+                abort(404, '첨부파일을 찾을 수 없습니다.');
+            }
+
+            $url = $file['url'];
+            $filename = $file['name'];
+
+            // HTTP 클라이언트로 나라장터에서 파일 다운로드
+            $response = \Illuminate\Support\Facades\Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer' => 'https://www.g2b.go.kr/',
+            ])->timeout(60)->get($url);
+
+            if (!$response->successful()) {
+                abort(500, '나라장터 파일 다운로드에 실패했습니다. (HTTP ' . $response->status() . ')');
+            }
+
+            // 파일 다운로드 응답 반환
+            return response()->streamDownload(function() use ($response) {
+                echo $response->body();
+            }, $filename, [
+                'Content-Type' => $response->header('Content-Type') ?? 'application/octet-stream',
+                'Content-Length' => strlen($response->body()),
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('첨부파일 다운로드 실패: ' . $e->getMessage(), [
+                'tender_id' => $tender->id,
+                'seq' => $seq,
+            ]);
+
+            abort(500, '파일 다운로드 중 오류가 발생했습니다: ' . $e->getMessage());
+        }
     }
 }
 // [END nara:admin_tender_controller]

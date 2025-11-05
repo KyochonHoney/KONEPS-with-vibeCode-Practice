@@ -463,13 +463,20 @@ class Tender extends Model
         for ($i = 1; $i <= 10; $i++) {
             $url = $this->{"ntce_spec_doc_url{$i}"};
             $name = $this->{"ntce_spec_file_nm{$i}"};
-            
+
             if (!empty($url) && !empty($name)) {
-                $files[] = [
-                    'url' => $url,
-                    'name' => $name,
-                    'seq' => $i
-                ];
+                // JSON 문자열 형태로 저장된 경우 안전하게 추출
+                $cleanUrl = $this->safeExtractString($url);
+                $cleanName = $this->safeExtractString($name);
+
+                // URL과 파일명이 유효한 경우만 추가
+                if (!empty($cleanUrl) && !empty($cleanName)) {
+                    $files[] = [
+                        'url' => $cleanUrl,
+                        'name' => $cleanName,
+                        'seq' => $i
+                    ];
+                }
             }
         }
         return $files;
@@ -525,14 +532,21 @@ class Tender extends Model
             }
             return (string) reset($data);
         }
-        
+
         if (is_string($data)) {
-            // JSON 배열 형태인지 확인
+            // JSON 배열 형태인지 확인 (예: ["value"])
             if (preg_match('/^\["(.+)"\]$/', $data, $matches)) {
-                return $matches[1];
+                $extracted = $matches[1];
+                // JSON 이스케이프 제거 (\/ -> /)
+                return str_replace('\\/', '/', $extracted);
+            }
+
+            // JSON 이스케이프만 있는 경우도 처리
+            if (strpos($data, '\\/') !== false) {
+                return str_replace('\\/', '/', $data);
             }
         }
-        
+
         return (string) $data;
     }
 

@@ -18,10 +18,17 @@ use Exception;
 class TenderCollectorService
 {
     private NaraApiService $naraApi;
-    
-    public function __construct(NaraApiService $naraApi)
-    {
+    private AttachmentService $attachmentService;
+    private SangjuCheckService $sangjuCheckService;
+
+    public function __construct(
+        NaraApiService $naraApi,
+        AttachmentService $attachmentService,
+        SangjuCheckService $sangjuCheckService
+    ) {
         $this->naraApi = $naraApi;
+        $this->attachmentService = $attachmentService;
+        $this->sangjuCheckService = $sangjuCheckService;
     }
     
     /**
@@ -194,15 +201,23 @@ class TenderCollectorService
                     '81111599', // 정보시스템개발서비스
                     '81151699'  // 공간정보DB구축서비스
                 ];
-                
+
                 $itemClassification = $this->safeExtractString($item['pubPrcrmntClsfcNo'] ?? '');
                 $bidNtceNo = $this->safeExtractString($item['bidNtceNo'] ?? '');
-                
+
+                // 서비스구분명 확인 (일반용역만 허용)
+                $srvceDivNm = $this->safeExtractString($item['srvceDivNm'] ?? '');
+                if (!empty($srvceDivNm) && $srvceDivNm !== '일반용역') {
+                    $stats['classification_filtered']++;
+                    Log::debug("필터링 제외: {$bidNtceNo} - 서비스구분 '{$srvceDivNm}' (일반용역 아님)");
+                    continue;
+                }
+
                 // 정확한 코드 매칭으로 확인
                 $isTargetCode = false;
                 $matchedCode = '';
                 $isEmptyClassification = false;
-                
+
                 // 빈 값이나 필드없음 확인
                 if (empty($itemClassification) || trim($itemClassification) === '') {
                     $isEmptyClassification = true;
@@ -215,16 +230,16 @@ class TenderCollectorService
                         $matchedCode = $itemClassification;
                     }
                 }
-                
+
                 // 대상 코드도 아니고 빈 값도 아닌 경우만 제외
                 if (!$isTargetCode && !$isEmptyClassification) {
                     $stats['classification_filtered']++;
                     Log::debug("필터링 제외: {$bidNtceNo} - 분류코드 '{$itemClassification}' (대상 코드 아님)");
                     continue;
                 }
-                
-                Log::info("대상 업종코드 발견: {$bidNtceNo} - 분류코드 '{$itemClassification}' (매칭: {$matchedCode})");
-                
+
+                Log::info("대상 업종코드 발견: {$bidNtceNo} - 분류코드 '{$itemClassification}' (매칭: {$matchedCode}), 서비스구분: {$srvceDivNm}");
+
                 // 빈 분류코드 정보를 전달
                 $extraData = ['is_empty_classification' => $isEmptyClassification];
                 $tenderData = $this->mapApiDataToTender($item, $includeAllFields, $extraData);
@@ -240,6 +255,30 @@ class TenderCollectorService
                     $stats['new_records']++;
                     // 첨부파일 다운로드 시도
                     $this->downloadTenderAttachments($item, $tenderData['tender_no']);
+
+                    // ✨ 자동 제안요청정보 파일 수집 및 상주 검사
+                    $tender = Tender::where('tender_no', $tenderData['tender_no'])->first();
+                    if ($tender) {
+                        // 제안요청정보 파일 수집
+                        try {
+                            $this->attachmentService->collectProposalFiles($tender);
+                        } catch (Exception $e) {
+                            Log::warning('자동 제안요청정보 파일 수집 실패', [
+                                'tender_id' => $tender->id,
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+
+                        // 상주 단어 검사 (파일 수집 후 실행)
+                        try {
+                            $this->sangjuCheckService->checkSangjuKeyword($tender);
+                        } catch (Exception $e) {
+                            Log::warning('자동 상주 검사 실패', [
+                                'tender_id' => $tender->id,
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
                 } else {
                     $stats['updated_records']++;
                 }

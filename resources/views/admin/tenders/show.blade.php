@@ -204,6 +204,14 @@
                                     </span>
                                 </div>
                             </div>
+                            @if($tender->cmmn_spldmd_agrmnt_rcptdoc_methd)
+                            <div class="row mb-3">
+                                <div class="col-sm-3"><strong>입찰방식:</strong></div>
+                                <div class="col-sm-9">
+                                    <span class="badge bg-info">{{ $tender->cmmn_spldmd_agrmnt_rcptdoc_methd }}</span>
+                                </div>
+                            </div>
+                            @endif
                         </div>
                     </div>
 
@@ -314,7 +322,7 @@
                                         <strong>{{ $file['name'] }}</strong>
                                         <small class="text-muted d-block">첨부파일 {{ $file['seq'] }}</small>
                                     </div>
-                                    <a href="{{ $file['url'] }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                    <a href="{{ route('admin.tenders.download_attachment', ['tender' => $tender->id, 'seq' => $file['seq']]) }}" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-download me-1"></i>다운로드
                                     </a>
                                 </div>
@@ -367,10 +375,22 @@
                                         <span class="{{ $file->download_status_class }} mb-2 d-block">
                                             {{ $file->download_status_label }}
                                         </span>
-                                        @if($file->download_url)
-                                            <a href="{{ $file->download_url }}" target="_blank" class="btn btn-sm btn-outline-info">
+                                        @php
+                                            $fileExists = false;
+                                            if ($file->local_path) {
+                                                // Check both storage_path and private path
+                                                $fileExists = file_exists(storage_path('app/' . $file->local_path)) ||
+                                                            file_exists(storage_path('app/private/' . $file->local_path));
+                                            }
+                                        @endphp
+                                        @if($fileExists)
+                                            <a href="{{ route('admin.attachments.download', $file) }}" class="btn btn-sm btn-outline-info">
                                                 <i class="bi bi-download me-1"></i>다운로드
                                             </a>
+                                        @elseif($file->download_url)
+                                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="forceDownloadFile({{ $file->id }})">
+                                                <i class="bi bi-cloud-download me-1"></i>재다운로드
+                                            </button>
                                         @else
                                             <button class="btn btn-sm btn-outline-secondary" disabled>
                                                 <i class="bi bi-x-circle me-1"></i>링크없음
@@ -512,31 +532,6 @@
                     </div>
                     @endif
 
-                    <!-- 상태 변경 -->
-                    <div class="card shadow mb-4">
-                        <div class="card-header py-3">
-                            <h6 class="m-0 font-weight-bold text-primary">
-                                <i class="bi bi-pencil-square me-2"></i>상태 변경
-                            </h6>
-                        </div>
-                        <div class="card-body">
-                            <form id="statusUpdateForm">
-                                @csrf
-                                <div class="mb-3">
-                                    <select class="form-select" id="status" name="status">
-                                        <option value="active" {{ $tender->status == 'active' ? 'selected' : '' }}>진행중</option>
-                                        <option value="closed" {{ $tender->status == 'closed' ? 'selected' : '' }}>마감</option>
-                                        <option value="cancelled" {{ $tender->status == 'cancelled' ? 'selected' : '' }}>취소</option>
-                                    </select>
-                                </div>
-                                <button type="submit" class="btn btn-primary btn-sm w-100">
-                                    <i class="bi bi-check-circle me-1"></i>
-                                    상태 업데이트
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-
                     <!-- 첨부파일 관리 -->
                     <div class="card shadow mb-4">
                         <div class="card-header py-3">
@@ -546,28 +541,14 @@
                         </div>
                         <div class="card-body">
                             <div class="d-grid gap-2">
-                                <button type="button" class="btn btn-outline-primary" id="collectAttachmentsBtn">
-                                    <i class="bi bi-collection me-1"></i>
-                                    첨부파일 정보 수집
-                                </button>
                                 <button type="button" class="btn btn-outline-info" id="collectProposalFilesBtn">
                                     <i class="bi bi-file-text me-1"></i>
                                     제안요청정보 파일 수집
                                 </button>
-                                <button type="button" class="btn btn-warning" id="downloadAllAsHwpBtn">
-                                    <i class="bi bi-file-earmark-text me-1"></i>
-                                    모든 파일을 한글로 변환
+                                <button type="button" class="btn btn-outline-warning" id="checkSangjuBtn">
+                                    <i class="bi bi-search me-1"></i>
+                                    "상주" 단어 검사 (비적합 자동판단)
                                 </button>
-                                <a href="{{ route('admin.attachments.download_hwp_zip', $tender) }}"
-                                   class="btn btn-success" id="downloadHwpZipBtn">
-                                    <i class="bi bi-file-earmark-zip me-1"></i>
-                                    변환된 파일 ZIP 다운로드
-                                </a>
-                                <a href="{{ route('admin.attachments.index', ['tender_id' => $tender->id]) }}"
-                                   class="btn btn-outline-info">
-                                    <i class="bi bi-files me-1"></i>
-                                    첨부파일 목록 보기
-                                </a>
                             </div>
                         </div>
                     </div>
@@ -581,15 +562,6 @@
                         </div>
                         <div class="card-body">
                             <div class="d-grid gap-2">
-                                <button type="button" class="btn btn-warning" id="analyzeBtn">
-                                    <i class="bi bi-cpu me-1"></i>
-                                    AI 분석 실행
-                                </button>
-                                <button type="button" class="btn btn-info" id="generateProposalBtn">
-                                    <i class="bi bi-file-text me-1"></i>
-                                    제안서 생성
-                                </button>
-                                <hr>
                                 <button type="button" class="btn btn-outline-danger" id="deleteBtn">
                                     <i class="bi bi-trash me-1"></i>
                                     공고 삭제
@@ -1125,6 +1097,79 @@ $(document).ready(function() {
             }
         });
     });
+
+    // "상주" 단어 검사 버튼
+    $('#checkSangjuBtn').click(function() {
+        const $btn = $(this);
+        const originalHtml = $btn.html();
+
+        // 버튼 비활성화 및 로딩 표시
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>검사 중...');
+
+        $.ajax({
+            url: '/admin/tenders/{{ $tender->id }}/check-sangju',
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(response) {
+                $btn.prop('disabled', false).html(originalHtml);
+
+                if (response.success) {
+                    if (response.has_sangju) {
+                        // "상주" 발견됨 - 비적합으로 표시
+                        showToast('warning', response.message);
+
+                        // 비적합 버튼 업데이트
+                        const $unsuitableBtn = $('#toggleUnsuitableBtn');
+                        $unsuitableBtn.removeClass('btn-outline-secondary')
+                                     .addClass('btn-warning')
+                                     .html('<i class="bi bi-hand-thumbs-down-fill me-1"></i>비적합 공고');
+
+                        // 페이지 새로고침 (상태 반영)
+                        setTimeout(() => location.reload(), 2000);
+                    } else {
+                        // "상주" 없음
+                        showToast('success', response.message);
+                    }
+                } else {
+                    showToast('danger', response.message || '검사에 실패했습니다.');
+                }
+            },
+            error: function(xhr) {
+                $btn.prop('disabled', false).html(originalHtml);
+                const response = xhr.responseJSON;
+                showToast('danger', response?.message || '"상주" 검사 중 오류가 발생했습니다.');
+            }
+        });
+    });
+
+    // 제안요청정보 파일 강제 재다운로드
+    window.forceDownloadFile = function(attachmentId) {
+        if (!confirm('서버에 파일이 없어 나라장터에서 다시 다운로드합니다. 계속하시겠습니까?')) {
+            return;
+        }
+
+        $.ajax({
+            url: '/admin/attachments/force-download/' + attachmentId,
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(response) {
+                if (response.success) {
+                    showToast('success', response.message);
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showToast('danger', response.message || '파일 다운로드에 실패했습니다.');
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showToast('danger', response?.message || '파일 다운로드 중 오류가 발생했습니다.');
+            }
+        });
+    };
 
     // 토스트 메시지 표시 함수
     function showToast(type, message) {

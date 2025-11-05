@@ -35,6 +35,7 @@ class Attachment extends Model
         'mime_type',
         'type',
         'download_url',
+        'post_data',
         'doc_name',
         'local_path',
         'download_status',
@@ -123,9 +124,15 @@ class Attachment extends Model
      */
     public function getIsDownloadedAttribute(): bool
     {
-        return $this->download_status === 'completed' && 
-               !empty($this->local_path) &&
-               file_exists(storage_path('app/' . $this->local_path));
+        if ($this->download_status !== 'completed' || empty($this->local_path)) {
+            return false;
+        }
+
+        // Check both possible storage paths
+        $path1 = storage_path('app/' . $this->local_path);
+        $path2 = storage_path('app/private/' . $this->local_path);
+
+        return file_exists($path1) || file_exists($path2);
     }
 
     /**
@@ -180,7 +187,7 @@ class Attachment extends Model
     /**
      * 로컬 파일 다운로드 URL 생성
      */
-    public function getDownloadUrlAttribute(): ?string
+    public function getLocalDownloadUrlAttribute(): ?string
     {
         if (!$this->is_downloaded) {
             return null;

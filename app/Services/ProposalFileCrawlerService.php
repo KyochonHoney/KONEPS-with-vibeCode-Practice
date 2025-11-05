@@ -97,11 +97,12 @@ const { chromium } = require('playwright');
     await page.goto(process.argv[2], { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(3000);
 
-    const files = await page.evaluate(() => {
+    // 파일 목록 및 메타데이터 수집
+    const fileMetadata = await page.evaluate(() => {
       const rows = document.querySelectorAll('#mf_wfm_container_mainWframe_grdPrpsDmndInfoView_body_tbody tr');
       const result = [];
 
-      rows.forEach(row => {
+      rows.forEach((row, index) => {
         const cells = row.querySelectorAll('td');
         if (cells.length >= 3) {
           const docName = cells[1]?.textContent?.trim() || '';
@@ -109,8 +110,10 @@ const { chromium } = require('playwright');
 
           if (fileName && !row.style.display.includes('none')) {
             result.push({
+              index: index,
               doc_name: docName,
-              file_name: fileName
+              file_name: fileName,
+              download_url: null
             });
           }
         }
@@ -119,7 +122,66 @@ const { chromium } = require('playwright');
       return result;
     });
 
-    console.log(JSON.stringify(files));
+    // 각 파일에 대해 다운로드 URL 및 POST 파라미터 추출
+    for (let i = 0; i < fileMetadata.length; i++) {
+      const file = fileMetadata[i];
+
+      try {
+        // Network 모니터링 시작
+        let downloadUrl = null;
+        let postData = null;
+        const requestMap = new Map(); // 요청 URL과 POST 데이터 매핑
+
+        const requestHandler = (request) => {
+          const reqUrl = request.url();
+          if (reqUrl.includes('fileUpload.do') && request.method() === 'POST') {
+            const data = request.postData();
+            if (data) {
+              requestMap.set(reqUrl, data);
+            }
+          }
+        };
+
+        const responseHandler = async (response) => {
+          const resUrl = response.url();
+          if (resUrl.includes('fileUpload.do')) {
+            const contentType = response.headers()['content-type'] || '';
+            // 실제 파일 다운로드 응답 감지 (hwp, pdf, doc, zip 등)
+            if (contentType.includes('application/') && !contentType.includes('text/html')) {
+              downloadUrl = resUrl;
+              // 해당 URL의 POST 데이터 찾기
+              postData = requestMap.get(resUrl);
+            }
+          }
+        };
+
+        page.on('request', requestHandler);
+        page.on('response', responseHandler);
+
+        // 파일 링크 클릭
+        const selector = `#mf_wfm_container_mainWframe_grdPrpsDmndInfoView_body_tbody tr:nth-child(${file.index + 1}) td:nth-child(3) a`;
+        const linkElement = page.locator(selector).first();
+
+        if (await linkElement.count() > 0) {
+          await linkElement.click();
+          await page.waitForTimeout(2000);
+
+          if (downloadUrl) {
+            file.download_url = downloadUrl;
+            file.post_data = postData || null;
+          }
+        }
+
+        page.off('request', requestHandler);
+        page.off('response', responseHandler);
+
+      } catch (clickError) {
+        // 클릭 실패 시 계속 진행
+        console.error(`File ${file.file_name} click failed:`, clickError.message);
+      }
+    }
+
+    console.log(JSON.stringify(fileMetadata));
 
   } catch (error) {
     console.error('Error:', error.message);
@@ -141,8 +203,8 @@ JS;
         file_put_contents($scriptPath, $nodeScript);
 
         try {
-            // Node.js로 Playwright 스크립트 실행
-            $result = Process::timeout(60)->run("node {$scriptPath} " . escapeshellarg($url));
+            // Node.js로 Playwright 스크립트 실행 (타임아웃 증가: 클릭 시뮬레이션 시간 고려)
+            $result = Process::timeout(120)->run("node {$scriptPath} " . escapeshellarg($url));
 
             if (!$result->successful()) {
                 Log::error("Playwright 실행 실패", [
@@ -153,12 +215,28 @@ JS;
             }
 
             $output = trim($result->output());
+            $errorOutput = trim($result->errorOutput());
+
+            // 디버깅: stderr 출력 로그
+            if (!empty($errorOutput)) {
+                Log::debug("Playwright stderr 출력", ['stderr' => $errorOutput]);
+            }
+
             $files = json_decode($output, true);
 
             if (!is_array($files)) {
-                Log::error("Playwright 출력 파싱 실패", ['output' => $output]);
+                Log::error("Playwright 출력 파싱 실패", [
+                    'output' => $output,
+                    'error_output' => $errorOutput
+                ]);
                 return [];
             }
+
+            // 디버깅: 파싱된 파일 정보 로그
+            Log::debug("Playwright 파일 정보 파싱 성공", [
+                'file_count' => count($files),
+                'files' => $files
+            ]);
 
             return $files;
 
@@ -189,27 +267,35 @@ JS;
             return;
         }
 
+        // 다운로드 URL 및 POST 데이터 가져오기
+        $downloadUrl = $fileInfo['download_url'] ?? null;
+        $postData = $fileInfo['post_data'] ?? null;
+
         // 메타데이터 저장
         Attachment::create([
             'tender_id' => $tender->id,
             'file_name' => $fileInfo['file_name'],
             'original_name' => $fileInfo['file_name'],
-            'file_url' => null,
+            'file_url' => $downloadUrl,
             'file_type' => pathinfo($fileInfo['file_name'], PATHINFO_EXTENSION),
             'file_size' => null,
             'mime_type' => $this->getMimeTypeFromExtension($fileInfo['file_name']),
             'type' => 'proposal',
-            'download_url' => null,
+            'download_url' => $downloadUrl,
+            'post_data' => $postData,
             'doc_name' => $fileInfo['doc_name'] ?? null,
             'local_path' => null,
-            'download_status' => 'pending',
+            'download_status' => $downloadUrl ? 'pending' : 'no_link',
             'downloaded_at' => null,
         ]);
 
         Log::info("제안요청정보 파일 메타데이터 저장", [
             'tender_id' => $tender->id,
             'filename' => $fileInfo['file_name'],
-            'doc_name' => $fileInfo['doc_name']
+            'doc_name' => $fileInfo['doc_name'],
+            'download_url' => $downloadUrl ? '있음' : '없음',
+            'post_data' => $postData ? '있음' : '없음',
+            'url' => $downloadUrl
         ]);
     }
 

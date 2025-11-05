@@ -253,6 +253,9 @@
                                         <th width="3%">
                                             <i class="bi bi-chat-left-text-fill text-info" title="메모"></i>
                                         </th>
+                                        <th width="3%">
+                                            <i class="bi bi-hand-thumbs-down-fill text-danger" title="비적합"></i>
+                                        </th>
                                         <th width="9%">공고번호</th>
                                         <th width="26%">제목</th>
                                         <th width="12%">기관</th>
@@ -294,6 +297,22 @@
                                                        style="font-size: 1.2rem;"
                                                        title="메모 없음"></i>
                                                 @endif
+                                            </td>
+                                            <td class="text-center">
+                                                <button class="btn btn-link p-0 toggle-unsuitable-btn"
+                                                        data-tender-id="{{ $tender->id }}"
+                                                        data-unsuitable="{{ $tender->is_unsuitable ? 'true' : 'false' }}"
+                                                        style="border: none; background: none;">
+                                                    @if($tender->is_unsuitable)
+                                                        <i class="bi bi-hand-thumbs-down-fill text-danger"
+                                                           style="font-size: 1.2rem;"
+                                                           title="비적합 공고 (클릭하여 적합으로 변경)"></i>
+                                                    @else
+                                                        <i class="bi bi-hand-thumbs-down text-muted"
+                                                           style="font-size: 1.2rem; opacity: 0.3;"
+                                                           title="적합 (클릭하여 비적합으로 표시)"></i>
+                                                    @endif
+                                                </button>
                                             </td>
                                             <td>
                                                 <small class="text-muted">{{ $tender->tender_no }}</small>
@@ -840,6 +859,50 @@ $(document).ready(function() {
             error: function(xhr) {
                 const response = xhr.responseJSON;
                 showAlert('danger', response?.message || '즐겨찾기 토글에 실패했습니다.');
+            }
+        });
+    });
+
+    // 비적합 토글 버튼 클릭 이벤트
+    $(document).on('click', '.toggle-unsuitable-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const $btn = $(this);
+        const tenderId = $btn.data('tender-id');
+        const currentUnsuitable = $btn.data('unsuitable') === 'true';
+        const $icon = $btn.find('i');
+
+        $.ajax({
+            url: `/admin/tenders/${tenderId}/toggle-unsuitable`,
+            method: 'PATCH',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(response) {
+                if (response.success) {
+                    // 아이콘 변경
+                    if (response.is_unsuitable) {
+                        $icon.removeClass('bi-hand-thumbs-down text-muted')
+                             .addClass('bi-hand-thumbs-down-fill text-danger')
+                             .css('opacity', '1')
+                             .attr('title', '비적합 공고 (클릭하여 적합으로 변경)');
+                        $btn.data('unsuitable', 'true');
+                    } else {
+                        $icon.removeClass('bi-hand-thumbs-down-fill text-danger')
+                             .addClass('bi-hand-thumbs-down text-muted')
+                             .css('opacity', '0.3')
+                             .attr('title', '적합 (클릭하여 비적합으로 표시)');
+                        $btn.data('unsuitable', 'false');
+                    }
+
+                    // 토스트 메시지 (선택사항)
+                    // showAlert('success', response.message);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                showAlert('danger', response?.message || '비적합 표시 토글에 실패했습니다.');
             }
         });
     });

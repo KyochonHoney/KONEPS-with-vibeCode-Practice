@@ -51,9 +51,12 @@ Route::middleware('auth')->group(function () {
         Route::delete('/{tender}', [TenderController::class, 'destroy'])->name('destroy');
         Route::patch('/{tender}/status', [TenderController::class, 'updateStatus'])->name('update_status');
         Route::patch('/{tender}/toggle-favorite', [TenderController::class, 'toggleFavorite'])->name('toggle_favorite');
+        Route::patch('/{tender}/toggle-unsuitable', [TenderController::class, 'toggleUnsuitable'])->name('toggle_unsuitable');
+        Route::post('/{tender}/check-sangju', [TenderController::class, 'checkSangju'])->name('check_sangju');
         Route::post('/{tender}/mention', [TenderController::class, 'storeMention'])->name('store_mention');
         Route::delete('/{tender}/mention', [TenderController::class, 'destroyMention'])->name('destroy_mention');
         Route::post('/{tender}/crawl-proposal-files', [TenderController::class, 'crawlProposalFiles'])->name('crawl_proposal_files');
+        Route::get('/{tender}/download-attachment/{seq}', [TenderController::class, 'downloadAttachment'])->name('download_attachment');
         Route::patch('/bulk/status', [TenderController::class, 'bulkUpdateStatus'])->name('bulk_update_status');
     });
 

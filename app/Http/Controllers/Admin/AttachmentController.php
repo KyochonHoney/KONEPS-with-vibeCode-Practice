@@ -158,12 +158,18 @@ class AttachmentController extends Controller
         }
 
         $filePath = $attachment->local_path;
-        
-        if (!Storage::exists($filePath)) {
-            abort(404, '파일이 존재하지 않습니다.');
+
+        // Check both possible storage paths
+        $fullPath = storage_path('app/' . $filePath);
+        if (!file_exists($fullPath)) {
+            $fullPath = storage_path('app/private/' . $filePath);
         }
 
-        return Storage::download($filePath, $attachment->file_name ?: $attachment->original_name);
+        if (!file_exists($fullPath)) {
+            abort(404, '파일이 존재하지 않습니다: ' . basename($filePath));
+        }
+
+        return response()->download($fullPath, $attachment->file_name ?: $attachment->original_name);
     }
 
     /**
