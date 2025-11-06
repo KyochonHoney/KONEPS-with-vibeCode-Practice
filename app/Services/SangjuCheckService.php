@@ -46,22 +46,63 @@ class SangjuCheckService
                     continue;
                 }
 
-                // 파일 확장자 확인 (HWP만 검사)
+                // 파일 확장자 확인
                 $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-                if ($extension !== 'hwp') {
+
+                // 확장자가 없는 경우 file_name에서 확장자 가져오기
+                if (empty($extension) || $extension === pathinfo($fullPath, PATHINFO_BASENAME)) {
+                    $extension = strtolower(pathinfo($attachment->file_name, PATHINFO_EXTENSION));
+                }
+
+                // 텍스트 추출 가능한 파일만 처리 (hwp, hwpx, pdf, doc, docx, txt)
+                if (!in_array($extension, ['hwp', 'hwpx', 'pdf', 'doc', 'docx', 'txt'])) {
                     continue;
                 }
 
                 $checkedFiles++;
 
-                // HWP 텍스트 추출 및 "상주" 검색
-                $scriptPath = base_path('scripts/extract_hwp_text.py');
-                $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
-                $extractedText = shell_exec($command);
+                // 파일 형식별 텍스트 추출
+                $extractedText = null;
+
+                if ($extension === 'hwp' || $extension === 'hwpx') {
+                    if ($extension === 'hwp') {
+                        // HWP 파일 - hwp5txt 기반 스크립트 사용
+                        $scriptPath = base_path('scripts/extract_hwp_text_hwp5.py');
+                        $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
+                        $extractedText = shell_exec($command);
+                    } else {
+                        // HWPX 파일 - ZIP/XML 파싱 스크립트 사용
+                        $scriptPath = base_path('scripts/extract_hwpx_text.py');
+                        $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
+                        $extractedText = shell_exec($command);
+                    }
+                } elseif ($extension === 'pdf') {
+                    // PDF 파일 - pdftotext 사용
+                    $command = "pdftotext " . escapeshellarg($fullPath) . " - 2>&1";
+                    $extractedText = shell_exec($command);
+                } elseif (in_array($extension, ['doc', 'docx'])) {
+                    // DOC/DOCX 파일
+                    if ($extension === 'doc') {
+                        $command = "antiword " . escapeshellarg($fullPath) . " 2>&1";
+                    } else {
+                        $command = "docx2txt " . escapeshellarg($fullPath) . " - 2>&1";
+                    }
+                    $extractedText = shell_exec($command);
+                } elseif ($extension === 'txt') {
+                    // 텍스트 파일 - 직접 읽기
+                    $extractedText = file_get_contents($fullPath);
+                }
 
                 if ($extractedText && mb_stripos($extractedText, '상주') !== false) {
                     $hasSangju = true;
-                    $foundInFiles[] = ($attachment->file_name ?: $attachment->original_name) . ' (제안요청정보)';
+                    $foundInFiles[] = [
+                        'file_name' => ($attachment->file_name ?: $attachment->original_name),
+                        'file_type' => '제안요청정보',
+                        'extension' => $extension,
+                        'occurrences' => substr_count(mb_strtolower($extractedText), '상주'),
+                        'file_size' => file_exists($fullPath) ? filesize($fullPath) : 0,
+                        'file_path' => $attachment->local_path
+                    ];
                 }
             }
 
@@ -83,8 +124,8 @@ class SangjuCheckService
                     // 파일 확장자 확인
                     $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
 
-                    // 텍스트 추출 가능한 파일만 처리 (hwp, pdf, doc, docx, txt)
-                    if (!in_array($extension, ['hwp', 'pdf', 'doc', 'docx', 'txt'])) {
+                    // 텍스트 추출 가능한 파일만 처리 (hwp, hwpx, pdf, doc, docx, txt)
+                    if (!in_array($extension, ['hwp', 'hwpx', 'pdf', 'doc', 'docx', 'txt'])) {
                         continue;
                     }
 
@@ -123,11 +164,18 @@ class SangjuCheckService
                         // 파일 형식별 텍스트 추출
                         $extractedText = null;
 
-                        if ($extension === 'hwp') {
-                            // HWP 파일 - Python 스크립트 사용
-                            $scriptPath = base_path('scripts/extract_hwp_text.py');
-                            $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($tempFilePath) . " 2>&1";
-                            $extractedText = shell_exec($command);
+                        if ($extension === 'hwp' || $extension === 'hwpx') {
+                            if ($extension === 'hwp') {
+                                // HWP 파일 - hwp5txt 기반 스크립트 사용
+                                $scriptPath = base_path('scripts/extract_hwp_text_hwp5.py');
+                                $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($tempFilePath) . " 2>&1";
+                                $extractedText = shell_exec($command);
+                            } else {
+                                // HWPX 파일 - ZIP/XML 파싱 스크립트 사용
+                                $scriptPath = base_path('scripts/extract_hwpx_text.py');
+                                $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($tempFilePath) . " 2>&1";
+                                $extractedText = shell_exec($command);
+                            }
                         } elseif ($extension === 'pdf') {
                             // PDF 파일 - pdftotext 명령어 사용
                             $command = "pdftotext " . escapeshellarg($tempFilePath) . " - 2>&1";
@@ -148,7 +196,14 @@ class SangjuCheckService
                         // "상주" 단어 검색 (대소문자 구분 없이)
                         if ($extractedText && mb_stripos($extractedText, '상주') !== false) {
                             $hasSangju = true;
-                            $foundInFiles[] = $fileName . ' (첨부파일)';
+                            $foundInFiles[] = [
+                                'file_name' => $fileName,
+                                'file_type' => '첨부파일',
+                                'extension' => $extension,
+                                'occurrences' => substr_count(mb_strtolower($extractedText), '상주'),
+                                'file_size' => file_exists($tempFilePath) ? filesize($tempFilePath) : 0,
+                                'file_path' => 'temp/' . $fileName
+                            ];
                         }
 
                         // 임시 파일 삭제
@@ -190,12 +245,19 @@ class SangjuCheckService
                 ]);
             }
 
+            // 총 발견 횟수 계산
+            $totalOccurrences = 0;
+            foreach ($foundInFiles as $fileInfo) {
+                $totalOccurrences += $fileInfo['occurrences'];
+            }
+
             return [
                 'success' => true,
                 'has_sangju' => $hasSangju,
                 'total_files' => $totalFiles,
                 'checked_files' => $checkedFiles,
                 'found_in_files' => $foundInFiles,
+                'total_occurrences' => $totalOccurrences,
                 'auto_marked_unsuitable' => $hasSangju
             ];
 

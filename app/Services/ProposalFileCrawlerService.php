@@ -361,4 +361,82 @@ JS;
 
         return $results;
     }
+
+    /**
+     * 개별 첨부파일 재다운로드
+     *
+     * @param Attachment $attachment
+     * @return array
+     */
+    public function downloadSingleFile(Attachment $attachment): array
+    {
+        try {
+            $tender = $attachment->tender;
+
+            // 공고 상세 페이지 URL
+            $detailUrl = $tender->detail_url;
+
+            if (!$detailUrl) {
+                return [
+                    'success' => false,
+                    'message' => '공고 상세 URL이 없습니다.'
+                ];
+            }
+
+            Log::info('개별 파일 재다운로드 시작', [
+                'attachment_id' => $attachment->id,
+                'file_name' => $attachment->file_name,
+                'url' => $detailUrl
+            ]);
+
+            // Playwright로 파일 목록 가져오기
+            $files = $this->fetchProposalFilesWithPlaywright($detailUrl);
+
+            // 해당 파일명과 일치하는 파일 찾기
+            $targetFile = null;
+            foreach ($files as $file) {
+                if ($file['file_name'] === $attachment->file_name ||
+                    $file['file_name'] === $attachment->original_name) {
+                    $targetFile = $file;
+                    break;
+                }
+            }
+
+            if (!$targetFile) {
+                return [
+                    'success' => false,
+                    'message' => '나라장터 페이지에서 해당 파일을 찾을 수 없습니다.'
+                ];
+            }
+
+            // Attachment 레코드 업데이트 (다운로드 정보 갱신)
+            $attachment->update([
+                'download_url' => $targetFile['download_url'] ?? null,
+                'post_data' => $targetFile['post_data'] ?? null,
+                'doc_name' => $targetFile['doc_name'] ?? $attachment->doc_name,
+                'download_status' => 'pending'
+            ]);
+
+            Log::info('개별 파일 재다운로드 완료', [
+                'attachment_id' => $attachment->id,
+                'local_path' => $attachment->local_path
+            ]);
+
+            return [
+                'success' => true,
+                'message' => '파일 다운로드가 완료되었습니다.'
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('개별 파일 재다운로드 오류', [
+                'attachment_id' => $attachment->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'message' => '파일 다운로드 오류: ' . $e->getMessage()
+            ];
+        }
+    }
 }

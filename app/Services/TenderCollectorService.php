@@ -396,19 +396,33 @@ class TenderCollectorService
         }
         
         // 예산 금액 파싱
-        $budget = $this->parseBudget($item['presmptPrce'] ?? null);
-        
+        $allocatedBudget = $this->parseBudget($item['presmptPrce'] ?? null);  // 추정가격 (부가세 제외)
+        $vat = $this->parseBudget($item['VAT'] ?? null);                      // 부가세
+
+        // 사업금액 = 추정가격 + 부가세 (입찰참가비 제외!)
+        // 주의: asignBdgtAmt는 입찰참가비가 포함되어 있어서 사용하면 안됨!
+        $totalBudget = null;
+        if ($allocatedBudget && $vat) {
+            $totalBudget = $allocatedBudget + $vat;
+        } elseif ($allocatedBudget) {
+            // VAT가 없으면 추정가격의 10%로 계산
+            $vat = $allocatedBudget * 0.1;
+            $totalBudget = $allocatedBudget + $vat;
+        }
+
         // 날짜 파싱
         $startDate = $this->parseDate($item['bidNtceDt'] ?? null);
         $endDate = $this->parseDate($item['bidNtceEndDt'] ?? null);
-        
+
         // 기본 데이터 배열 (기존 컬럼들)
         $tenderData = [
             'tender_no' => $bidNtceNo,
             'title' => $bidNtceNm,
             'content' => $this->extractContent($item),
             'agency' => $dminsttNm,
-            'budget' => $budget,
+            'total_budget' => $totalBudget,        // 사업금액 (추정가격 + 부가세)
+            'allocated_budget' => $allocatedBudget, // 추정가격 (부가세 제외)
+            'vat' => $vat,                         // 부가세
             'currency' => 'KRW',
             'start_date' => $startDate,
             'end_date' => $endDate,
@@ -439,16 +453,73 @@ class TenderCollectorService
     private function saveTenderData(array $tenderData): string
     {
         $tender = Tender::where('tender_no', $tenderData['tender_no'])->first();
-        
+
         if ($tender) {
             // 기존 데이터 업데이트
             $tender->update($tenderData);
-            return 'updated';
+            $action = 'updated';
         } else {
             // 새 데이터 생성
-            Tender::create($tenderData);
-            return 'created';
+            $tender = Tender::create($tenderData);
+            $action = 'created';
         }
+
+        // ✅ 자동 처리: 신규 생성 또는 업데이트된 공고에 대해 제안요청정보 파일 수집 및 상주 키워드 검사
+        if ($action === 'created' || $action === 'updated') {
+            try {
+                // 1. 자동 제안요청정보 파일 수집
+                Log::info('자동 제안요청정보 파일 수집 시작', [
+                    'tender_id' => $tender->id,
+                    'tender_no' => $tender->tender_no,
+                    'action' => $action
+                ]);
+
+                $this->attachmentService->collectProposalFiles($tender);
+
+                Log::info('자동 제안요청정보 파일 수집 완료', [
+                    'tender_id' => $tender->id,
+                    'tender_no' => $tender->tender_no
+                ]);
+
+            } catch (\Exception $e) {
+                Log::warning('자동 제안요청정보 파일 수집 실패 (계속 진행)', [
+                    'tender_id' => $tender->id,
+                    'tender_no' => $tender->tender_no,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            try {
+                // 2. 자동 상주 키워드 검사
+                Log::info('자동 상주 키워드 검사 시작', [
+                    'tender_id' => $tender->id,
+                    'tender_no' => $tender->tender_no
+                ]);
+
+                $result = $this->sangjuCheckService->checkSangjuKeyword($tender);
+
+                if ($result['success']) {
+                    Log::info('자동 상주 키워드 검사 완료', [
+                        'tender_id' => $tender->id,
+                        'tender_no' => $tender->tender_no,
+                        'has_sangju' => $result['has_sangju'],
+                        'total_files' => $result['total_files'],
+                        'checked_files' => $result['checked_files'],
+                        'total_occurrences' => $result['total_occurrences'] ?? 0,
+                        'found_in_files_count' => count($result['found_in_files'])
+                    ]);
+                }
+
+            } catch (\Exception $e) {
+                Log::warning('자동 상주 키워드 검사 실패 (계속 진행)', [
+                    'tender_id' => $tender->id,
+                    'tender_no' => $tender->tender_no,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        return $action;
     }
     
     /**

@@ -32,7 +32,9 @@ class Tender extends Model
         'title',
         'content',
         'agency',
-        'budget',
+        'total_budget',      // 사업금액 (추정가격 + 부가세)
+        'allocated_budget',  // 추정가격 (부가세 제외)
+        'vat',              // 부가세
         'currency',
         'start_date',
         'end_date',
@@ -88,7 +90,9 @@ class Tender extends Model
      * 데이터 타입 캐스팅
      */
     protected $casts = [
-        'budget' => 'decimal:2',
+        'total_budget' => 'decimal:2',
+        'allocated_budget' => 'decimal:2',
+        'vat' => 'decimal:2',
         'start_date' => 'date',
         'end_date' => 'date',
         'collected_at' => 'datetime',
@@ -208,13 +212,13 @@ class Tender extends Model
     public function scopeByBudgetRange($query, $minBudget = null, $maxBudget = null)
     {
         if ($minBudget) {
-            $query->where('budget', '>=', $minBudget);
+            $query->where('total_budget', '>=', $minBudget);
         }
-        
+
         if ($maxBudget) {
-            $query->where('budget', '<=', $maxBudget);
+            $query->where('total_budget', '<=', $maxBudget);
         }
-        
+
         return $query;
     }
 
@@ -285,16 +289,24 @@ class Tender extends Model
     }
 
     /**
-     * 예산을 포맷된 문자열로 반환
+     * 예산을 포맷된 문자열로 반환 (하위 호환성)
      */
     public function getFormattedBudgetAttribute(): string
     {
-        if (!$this->budget) {
+        return $this->formatted_total_budget;
+    }
+
+    /**
+     * 사업금액(총 예산)을 포맷된 문자열로 반환
+     */
+    public function getFormattedTotalBudgetAttribute(): string
+    {
+        if (!$this->total_budget) {
             return '미공개';
         }
-        
-        $budget = $this->budget;
-        
+
+        $budget = $this->total_budget;
+
         if ($budget >= 100000000) { // 1억 이상
             return number_format($budget / 100000000, 1) . '억원';
         } elseif ($budget >= 10000) { // 1만 이상
@@ -302,6 +314,57 @@ class Tender extends Model
         } else {
             return number_format($budget) . '원';
         }
+    }
+
+    /**
+     * 추정가격을 포맷된 문자열로 반환
+     */
+    public function getFormattedAllocatedBudgetAttribute(): string
+    {
+        if (!$this->allocated_budget) {
+            return '미공개';
+        }
+
+        $budget = $this->allocated_budget;
+
+        if ($budget >= 100000000) { // 1억 이상
+            return number_format($budget / 100000000, 1) . '억원';
+        } elseif ($budget >= 10000) { // 1만 이상
+            return number_format($budget / 10000) . '만원';
+        } else {
+            return number_format($budget) . '원';
+        }
+    }
+
+    /**
+     * 부가세를 포맷된 문자열로 반환
+     */
+    public function getFormattedVatAttribute(): string
+    {
+        if (!$this->vat) {
+            return '미공개';
+        }
+
+        $vat = $this->vat;
+
+        if ($vat >= 100000000) { // 1억 이상
+            return number_format($vat / 100000000, 1) . '억원';
+        } elseif ($vat >= 10000) { // 1만 이상
+            return number_format($vat / 10000) . '만원';
+        } else {
+            return number_format($vat) . '원';
+        }
+    }
+
+    /**
+     * 부가세율 계산 (%)
+     */
+    public function getVatRateAttribute(): ?float
+    {
+        if (!$this->allocated_budget || !$this->vat) {
+            return null;
+        }
+        return round(($this->vat / $this->allocated_budget) * 100, 2);
     }
 
     /**

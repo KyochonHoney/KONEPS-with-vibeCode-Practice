@@ -333,9 +333,7 @@
                     @endif
 
                     <!-- 제안요청정보 파일 (크롤링으로 수집) -->
-                    @php
-                        $proposalFiles = $tender->attachments()->where('type', 'proposal')->get();
-                    @endphp
+                    {{-- $proposalFiles는 컨트롤러에서 전달됨 (상주 검사 결과 포함) --}}
                     @if($proposalFiles->count() > 0)
                     <div class="card shadow mb-4 border-info">
                         <div class="card-header py-3 bg-info bg-opacity-10">
@@ -361,6 +359,23 @@
                                                 <i class="bi bi-file-earmark text-secondary me-2"></i>
                                             @endif
                                             <strong>{{ $file->file_name }}</strong>
+
+                                            {{-- 상주 검사 결과 표시 --}}
+                                            @if(isset($file->sangju_status))
+                                                @if($file->sangju_status['has_sangju'])
+                                                    <span class="badge bg-danger ms-2" title="상주 키워드 감지됨">
+                                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>상주 {{ $file->sangju_status['occurrences'] }}회 감지
+                                                    </span>
+                                                @elseif($file->sangju_status['checked'])
+                                                    <span class="badge bg-success ms-2" title="상주 키워드 없음">
+                                                        <i class="bi bi-check-circle-fill me-1"></i>상주 없음
+                                                    </span>
+                                                @else
+                                                    <span class="badge bg-secondary ms-2" title="검사 안됨{{ isset($file->sangju_status['error']) ? ': ' . $file->sangju_status['error'] : '' }}">
+                                                        <i class="bi bi-question-circle-fill me-1"></i>검사 안됨
+                                                    </span>
+                                                @endif
+                                            @endif
                                         </div>
                                         @if($file->doc_name)
                                             <small class="text-muted d-block">
@@ -481,36 +496,61 @@
                             </h6>
                         </div>
                         <div class="card-body">
-                            @php $budgetDetails = $tender->formatted_budget_details @endphp
+                            @if($tender->total_budget || $tender->allocated_budget || $tender->vat)
+                                <table class="table table-sm">
+                                    @if($tender->total_budget)
+                                    <tr>
+                                        <th width="150">사업금액</th>
+                                        <td>
+                                            <strong class="text-primary h5">{{ $tender->formatted_total_budget }}</strong>
+                                            <span class="badge bg-info ms-2">추정가 + 부가세</span>
+                                            <small class="text-muted d-block">({{ number_format($tender->total_budget) }}원)</small>
+                                        </td>
+                                    </tr>
+                                    @endif
 
-                            @if($budgetDetails['total'])
-                            <div class="mb-3">
-                                <strong>총 예산 (VAT 포함):</strong><br>
-                                <span class="h4 text-success">{{ $budgetDetails['total'] }}</span>
-                                <small class="text-muted d-block">({{ $tender->currency }})</small>
-                            </div>
-                            @endif
+                                    @if($tender->allocated_budget)
+                                    <tr>
+                                        <th>추정가격</th>
+                                        <td>
+                                            <strong class="h6">{{ $tender->formatted_allocated_budget }}</strong>
+                                            <small class="text-muted d-block">({{ number_format($tender->allocated_budget) }}원)</small>
+                                        </td>
+                                    </tr>
+                                    @endif
 
-                            @if($budgetDetails['assign_budget'])
-                            <div class="mb-3">
-                                <strong>배정예산 (VAT 제외):</strong><br>
-                                <span class="h5 text-primary">{{ $budgetDetails['assign_budget'] }}</span>
-                            </div>
-                            @endif
+                                    @if($tender->vat)
+                                    <tr>
+                                        <th>부가세</th>
+                                        <td>
+                                            <strong class="h6">{{ $tender->formatted_vat }}</strong>
+                                            @if($tender->vat_rate)
+                                                <span class="badge bg-secondary ms-2">{{ $tender->vat_rate }}%</span>
+                                            @endif
+                                            <small class="text-muted d-block">({{ number_format($tender->vat) }}원)</small>
+                                        </td>
+                                    </tr>
+                                    @endif
+                                </table>
 
-                            @if($budgetDetails['vat'])
-                            <div class="mb-3">
-                                <strong>부가세:</strong><br>
-                                <span class="h6 text-info">{{ $budgetDetails['vat'] }}</span>
-                            </div>
-                            @endif
-
-                            @if(!$budgetDetails['total'] && $tender->formatted_budget !== '미공개')
-                            <div class="mb-3">
-                                <strong>예산:</strong><br>
-                                <span class="h5 text-success">{{ $tender->formatted_budget }}</span>
-                                <small class="text-muted d-block">({{ $tender->currency }})</small>
-                            </div>
+                                @if($tender->total_budget && $tender->allocated_budget && $tender->vat)
+                                <div class="alert alert-light mt-3 mb-0">
+                                    <small class="text-muted">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        검증: {{ number_format($tender->allocated_budget + $tender->vat) }}원
+                                        @php
+                                            $diff = abs($tender->total_budget - ($tender->allocated_budget + $tender->vat));
+                                        @endphp
+                                        @if($diff < 100)
+                                            <span class="text-success">= {{ number_format($tender->total_budget) }}원 ✓</span>
+                                        @else
+                                            <span class="text-warning">≈ {{ number_format($tender->total_budget) }}원 (차이: {{ number_format($diff) }}원)</span>
+                                        @endif
+                                    </small>
+                                </div>
+                                @endif
+                            @else
+                                <p class="text-muted mb-0">예산 정보가 없습니다.</p>
                             @endif
                         </div>
                     </div>
@@ -1118,7 +1158,19 @@ $(document).ready(function() {
                 if (response.success) {
                     if (response.has_sangju) {
                         // "상주" 발견됨 - 비적합으로 표시
-                        showToast('warning', response.message);
+                        let detailedMessage = '<strong>✅ "상주" 키워드 발견</strong><br>';
+                        detailedMessage += `총 ${response.total_occurrences}회 발견 (검사 파일: ${response.checked_files}/${response.total_files}개)<br><br>`;
+
+                        if (response.found_in_files && response.found_in_files.length > 0) {
+                            detailedMessage += '<strong>발견된 파일:</strong><ul class="mb-0 mt-1">';
+                            response.found_in_files.forEach(file => {
+                                const fileSize = (file.file_size / 1024).toFixed(1); // KB
+                                detailedMessage += `<li><strong>${file.file_name}</strong> (${file.file_type}) - ${file.occurrences}회 발견 (${fileSize} KB, ${file.extension})</li>`;
+                            });
+                            detailedMessage += '</ul>';
+                        }
+
+                        showToast('warning', detailedMessage);
 
                         // 비적합 버튼 업데이트
                         const $unsuitableBtn = $('#toggleUnsuitableBtn');
@@ -1127,7 +1179,7 @@ $(document).ready(function() {
                                      .html('<i class="bi bi-hand-thumbs-down-fill me-1"></i>비적합 공고');
 
                         // 페이지 새로고침 (상태 반영)
-                        setTimeout(() => location.reload(), 2000);
+                        setTimeout(() => location.reload(), 3000);
                     } else {
                         // "상주" 없음
                         showToast('success', response.message);

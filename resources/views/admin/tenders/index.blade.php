@@ -331,7 +331,13 @@
                                                 </small>
                                             </td>
                                             <td>{{ $tender->agency }}</td>
-                                            <td>{{ $tender->formatted_budget }}</td>
+                                            <td>
+                                                <strong>{{ $tender->formatted_total_budget }}</strong>
+                                                @if($tender->allocated_budget)
+                                                    <br>
+                                                    <small class="text-muted">추정가: {{ $tender->formatted_allocated_budget }}</small>
+                                                @endif
+                                            </td>
                                             <td>
                                                 @if($tender->start_date)
                                                     <small>{{ \Carbon\Carbon::parse($tender->start_date)->format('Y-m-d') }}</small>

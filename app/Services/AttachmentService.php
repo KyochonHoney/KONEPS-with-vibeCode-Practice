@@ -139,4 +139,56 @@ class AttachmentService
             ];
         }
     }
+
+    /**
+     * 개별 첨부파일 다운로드 (재다운로드용)
+     *
+     * @param Attachment $attachment 첨부파일 모델
+     * @return void
+     * @throws Exception
+     */
+    public function downloadAttachment(Attachment $attachment): void
+    {
+        Log::info('첨부파일 재다운로드 시작', [
+            'attachment_id' => $attachment->id,
+            'file_name' => $attachment->file_name
+        ]);
+
+        try {
+            // 1단계: ProposalFileCrawlerService로 다운로드 메타데이터 갱신
+            $crawler = app(\App\Services\ProposalFileCrawlerService::class);
+            $metaResult = $crawler->downloadSingleFile($attachment);
+
+            if (!$metaResult['success']) {
+                throw new Exception($metaResult['message'] ?? '파일 메타데이터 갱신에 실패했습니다.');
+            }
+
+            Log::info('파일 메타데이터 갱신 완료', [
+                'attachment_id' => $attachment->id,
+                'download_url' => $attachment->download_url ? '있음' : '없음'
+            ]);
+
+            // 2단계: ProposalFileDownloaderService로 실제 파일 다운로드
+            $downloader = app(\App\Services\ProposalFileDownloaderService::class);
+            $downloadResult = $downloader->downloadFile($attachment->fresh());
+
+            if (!$downloadResult['success']) {
+                throw new Exception($downloadResult['message'] ?? '파일 다운로드에 실패했습니다.');
+            }
+
+            Log::info('첨부파일 재다운로드 완료', [
+                'attachment_id' => $attachment->id,
+                'local_path' => $downloadResult['local_path'],
+                'file_size' => $downloadResult['file_size']
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('첨부파일 재다운로드 오류', [
+                'attachment_id' => $attachment->id,
+                'error' => $e->getMessage()
+            ]);
+
+            throw $e;
+        }
+    }
 }

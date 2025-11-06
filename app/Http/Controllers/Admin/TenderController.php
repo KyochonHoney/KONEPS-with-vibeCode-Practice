@@ -172,7 +172,114 @@ class TenderController extends Controller
             ->where('user_id', auth()->id())
             ->first();
 
-        return view('admin.tenders.show', compact('tender', 'userMention'));
+        // 제안요청정보 파일의 상주 검사 결과 미리 계산
+        // 모든 상태의 파일을 표시하되, completed 파일만 상주 검사 수행
+        $proposalFiles = $tender->attachments()->where('type', 'proposal')->get();
+        foreach ($proposalFiles as $file) {
+            if ($file->download_status === 'completed') {
+                // 다운로드 완료된 파일만 상주 검사
+                $file->sangju_status = $this->checkFileSangju($file);
+            } else {
+                // pending/failed 파일은 검사 안 함
+                $file->sangju_status = [
+                    'checked' => false,
+                    'has_sangju' => false,
+                    'occurrences' => 0,
+                    'error' => '다운로드 ' . ($file->download_status === 'pending' ? '대기중' : '실패')
+                ];
+            }
+        }
+
+        return view('admin.tenders.show', compact('tender', 'userMention', 'proposalFiles'));
+    }
+
+    /**
+     * 개별 파일의 상주 키워드 검사 (페이지 로드용)
+     *
+     * @param \App\Models\Attachment $attachment
+     * @return array
+     */
+    private function checkFileSangju($attachment): array
+    {
+        try {
+            // 파일 경로 확인
+            $fullPath = storage_path('app/' . $attachment->local_path);
+            if (!file_exists($fullPath)) {
+                $fullPath = storage_path('app/private/' . $attachment->local_path);
+            }
+
+            if (!file_exists($fullPath)) {
+                return ['checked' => false, 'has_sangju' => false, 'occurrences' => 0, 'error' => '파일 없음'];
+            }
+
+            // 확장자 확인
+            $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+            if (empty($extension) || $extension === pathinfo($fullPath, PATHINFO_BASENAME)) {
+                $extension = strtolower(pathinfo($attachment->file_name, PATHINFO_EXTENSION));
+            }
+
+            // 지원하는 포맷인지 확인
+            if (!in_array($extension, ['hwp', 'hwpx', 'pdf', 'doc', 'docx', 'txt'])) {
+                return ['checked' => false, 'has_sangju' => false, 'occurrences' => 0, 'error' => '지원하지 않는 포맷'];
+            }
+
+            // 텍스트 추출 (여러 방법 시도)
+            $extractedText = null;
+            if ($extension === 'hwp' || $extension === 'hwpx') {
+                if ($extension === 'hwp') {
+                    // 방법 1: hwp5.py 스크립트
+                    $scriptPath = base_path('scripts/extract_hwp_text_hwp5.py');
+                    $command = "timeout 10 python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
+                    $extractedText = shell_exec($command);
+
+                    // 방법 2: pyhwp (backup)
+                    if (empty($extractedText) || strlen($extractedText) < 100) {
+                        $scriptPath2 = base_path('scripts/extract_hwp_text_pyhwp.py');
+                        $command2 = "timeout 10 python3 " . escapeshellarg($scriptPath2) . " " . escapeshellarg($fullPath) . " 2>&1";
+                        $extractedText2 = shell_exec($command2);
+                        if (!empty($extractedText2) && strlen($extractedText2) > strlen($extractedText)) {
+                            $extractedText = $extractedText2;
+                        }
+                    }
+
+                    // 방법 3: hwp5txt 명령어 (추가 backup)
+                    if (empty($extractedText) || strlen($extractedText) < 100) {
+                        $command3 = "timeout 10 " . storage_path('../storage/hwp_venv/bin/hwp5txt') . " " . escapeshellarg($fullPath) . " 2>&1";
+                        $extractedText3 = shell_exec($command3);
+                        if (!empty($extractedText3) && strlen($extractedText3) > strlen($extractedText)) {
+                            $extractedText = $extractedText3;
+                        }
+                    }
+                } else {
+                    $scriptPath = base_path('scripts/extract_hwpx_text.py');
+                    $command = "timeout 10 python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
+                    $extractedText = shell_exec($command);
+                }
+            } elseif ($extension === 'pdf') {
+                $command = "timeout 10 pdftotext " . escapeshellarg($fullPath) . " - 2>&1";
+                $extractedText = shell_exec($command);
+            } elseif (in_array($extension, ['doc', 'docx'])) {
+                if ($extension === 'doc') {
+                    $command = "timeout 10 antiword " . escapeshellarg($fullPath) . " 2>&1";
+                } else {
+                    $command = "timeout 10 docx2txt " . escapeshellarg($fullPath) . " - 2>&1";
+                }
+                $extractedText = shell_exec($command);
+            } elseif ($extension === 'txt') {
+                $extractedText = file_get_contents($fullPath);
+            }
+
+            // 상주 검사
+            if ($extractedText && mb_stripos($extractedText, '상주') !== false) {
+                $occurrences = substr_count(mb_strtolower($extractedText), '상주');
+                return ['checked' => true, 'has_sangju' => true, 'occurrences' => $occurrences];
+            }
+
+            return ['checked' => true, 'has_sangju' => false, 'occurrences' => 0];
+
+        } catch (\Exception $e) {
+            return ['checked' => false, 'has_sangju' => false, 'occurrences' => 0, 'error' => $e->getMessage()];
+        }
     }
 
     /**
@@ -585,7 +692,10 @@ class TenderController extends Controller
             $checkedFiles = 0;
 
             // 1. 제안요청정보 파일 검사 (Attachment 모델 - proposal_files)
-            $proposalAttachments = $tender->attachments()->where('download_status', 'completed')->get();
+            $proposalAttachments = $tender->attachments()
+                ->where('type', 'proposal')
+                ->where('download_status', 'completed')
+                ->get();
 
             foreach ($proposalAttachments as $attachment) {
                 $totalFiles++;
@@ -601,23 +711,83 @@ class TenderController extends Controller
                     continue; // 파일이 없으면 건너뛰기
                 }
 
-                // HWP 파일만 검사
+                // 파일 확장자 확인
                 $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-                if ($extension !== 'hwp') {
+
+                // 확장자가 없는 경우 (예: 'download') file_name에서 확장자 가져오기
+                if (empty($extension) || $extension === pathinfo($fullPath, PATHINFO_BASENAME)) {
+                    $extension = strtolower(pathinfo($attachment->file_name, PATHINFO_EXTENSION));
+                }
+
+                // 텍스트 추출 가능한 파일만 처리 (hwp, hwpx, pdf, doc, docx, txt)
+                if (!in_array($extension, ['hwp', 'hwpx', 'pdf', 'doc', 'docx', 'txt'])) {
                     continue;
                 }
 
                 $checkedFiles++;
 
-                // HWP 파일 텍스트 추출 및 "상주" 검색
-                $scriptPath = base_path('scripts/extract_hwp_text.py');
-                $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
-                $extractedText = shell_exec($command);
+                // 파일 형식별 텍스트 추출 (여러 방법 시도)
+                $extractedText = null;
+
+                if ($extension === 'hwp' || $extension === 'hwpx') {
+                    if ($extension === 'hwp') {
+                        // 방법 1: hwp5.py 스크립트
+                        $scriptPath = base_path('scripts/extract_hwp_text_hwp5.py');
+                        $command = "timeout 30 python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
+                        $extractedText = shell_exec($command);
+
+                        // 방법 2: pyhwp (backup)
+                        if (empty($extractedText) || strlen($extractedText) < 100) {
+                            $scriptPath2 = base_path('scripts/extract_hwp_text_pyhwp.py');
+                            $command2 = "timeout 30 python3 " . escapeshellarg($scriptPath2) . " " . escapeshellarg($fullPath) . " 2>&1";
+                            $extractedText2 = shell_exec($command2);
+                            if (!empty($extractedText2) && strlen($extractedText2) > strlen($extractedText)) {
+                                $extractedText = $extractedText2;
+                            }
+                        }
+
+                        // 방법 3: hwp5txt 명령어 (추가 backup)
+                        if (empty($extractedText) || strlen($extractedText) < 100) {
+                            $command3 = "timeout 30 " . storage_path('../storage/hwp_venv/bin/hwp5txt') . " " . escapeshellarg($fullPath) . " 2>&1";
+                            $extractedText3 = shell_exec($command3);
+                            if (!empty($extractedText3) && strlen($extractedText3) > strlen($extractedText)) {
+                                $extractedText = $extractedText3;
+                            }
+                        }
+                    } else {
+                        // HWPX 파일 - ZIP/XML 파싱 스크립트 사용
+                        $scriptPath = base_path('scripts/extract_hwpx_text.py');
+                        $command = "timeout 30 python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($fullPath) . " 2>&1";
+                        $extractedText = shell_exec($command);
+                    }
+                } elseif ($extension === 'pdf') {
+                    // PDF 파일 - pdftotext 사용
+                    $command = "pdftotext " . escapeshellarg($fullPath) . " - 2>&1";
+                    $extractedText = shell_exec($command);
+                } elseif (in_array($extension, ['doc', 'docx'])) {
+                    // DOC/DOCX 파일
+                    if ($extension === 'doc') {
+                        $command = "antiword " . escapeshellarg($fullPath) . " 2>&1";
+                    } else {
+                        $command = "docx2txt " . escapeshellarg($fullPath) . " - 2>&1";
+                    }
+                    $extractedText = shell_exec($command);
+                } elseif ($extension === 'txt') {
+                    // 텍스트 파일 - 직접 읽기
+                    $extractedText = file_get_contents($fullPath);
+                }
 
                 // "상주" 단어 검색 (대소문자 구분 없음)
                 if ($extractedText && mb_stripos($extractedText, '상주') !== false) {
                     $hasSangju = true;
-                    $foundInFiles[] = ($attachment->file_name ?: $attachment->original_name) . ' (제안요청정보)';
+                    $foundInFiles[] = [
+                        'file_name' => ($attachment->file_name ?: $attachment->original_name),
+                        'file_type' => '제안요청정보',
+                        'extension' => $extension,
+                        'occurrences' => substr_count(mb_strtolower($extractedText), '상주'),
+                        'file_size' => file_exists($fullPath) ? filesize($fullPath) : 0,
+                        'file_path' => $attachment->local_path
+                    ];
                 }
             }
 
@@ -639,8 +809,8 @@ class TenderController extends Controller
                     // 파일 확장자 확인
                     $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
 
-                    // 텍스트 추출 가능한 파일만 처리 (hwp, pdf, doc, docx, txt)
-                    if (!in_array($extension, ['hwp', 'pdf', 'doc', 'docx', 'txt'])) {
+                    // 텍스트 추출 가능한 파일만 처리 (hwp, hwpx, pdf, doc, docx, txt)
+                    if (!in_array($extension, ['hwp', 'hwpx', 'pdf', 'doc', 'docx', 'txt'])) {
                         continue;
                     }
 
@@ -679,11 +849,18 @@ class TenderController extends Controller
                         // 파일 형식별 텍스트 추출
                         $extractedText = null;
 
-                        if ($extension === 'hwp') {
-                            // HWP 파일 - Python 스크립트 사용
-                            $scriptPath = base_path('scripts/extract_hwp_text.py');
-                            $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($tempFilePath) . " 2>&1";
-                            $extractedText = shell_exec($command);
+                        if ($extension === 'hwp' || $extension === 'hwpx') {
+                            if ($extension === 'hwp') {
+                                // HWP 파일 - hwp5txt 기반 스크립트 사용
+                                $scriptPath = base_path('scripts/extract_hwp_text_hwp5.py');
+                                $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($tempFilePath) . " 2>&1";
+                                $extractedText = shell_exec($command);
+                            } else {
+                                // HWPX 파일 - ZIP/XML 파싱 스크립트 사용
+                                $scriptPath = base_path('scripts/extract_hwpx_text.py');
+                                $command = "python3 " . escapeshellarg($scriptPath) . " " . escapeshellarg($tempFilePath) . " 2>&1";
+                                $extractedText = shell_exec($command);
+                            }
                         } elseif ($extension === 'pdf') {
                             // PDF 파일 - pdftotext 사용
                             $command = "pdftotext " . escapeshellarg($tempFilePath) . " - 2>&1";
@@ -704,7 +881,14 @@ class TenderController extends Controller
                         // "상주" 단어 검색
                         if ($extractedText && mb_stripos($extractedText, '상주') !== false) {
                             $hasSangju = true;
-                            $foundInFiles[] = $fileName . ' (첨부파일)';
+                            $foundInFiles[] = [
+                                'file_name' => $fileName,
+                                'file_type' => '첨부파일',
+                                'extension' => $extension,
+                                'occurrences' => substr_count(mb_strtolower($extractedText), '상주'),
+                                'file_size' => file_exists($tempFilePath) ? filesize($tempFilePath) : 0,
+                                'file_path' => 'temp/' . $fileName
+                            ];
                         }
 
                         // 임시 파일 삭제
@@ -731,6 +915,12 @@ class TenderController extends Controller
                 ]);
             }
 
+            // 총 발견 횟수 계산
+            $totalOccurrences = 0;
+            foreach ($foundInFiles as $fileInfo) {
+                $totalOccurrences += $fileInfo['occurrences'];
+            }
+
             // "상주"가 발견되면 비적합으로 자동 표시
             if ($hasSangju) {
                 $tender->is_unsuitable = true;
@@ -739,12 +929,20 @@ class TenderController extends Controller
                 return response()->json([
                     'success' => true,
                     'has_sangju' => true,
-                    'message' => '"상주" 단어가 발견되어 비적합으로 표시했습니다. (검사: ' . $checkedFiles . '/' . $totalFiles . '개 파일, 발견: ' . implode(', ', $foundInFiles) . ')'
+                    'total_files' => $totalFiles,
+                    'checked_files' => $checkedFiles,
+                    'found_in_files' => $foundInFiles,
+                    'total_occurrences' => $totalOccurrences,
+                    'message' => '"상주" 키워드가 ' . count($foundInFiles) . '개 파일에서 총 ' . $totalOccurrences . '회 발견되었습니다. (검사: ' . $checkedFiles . '/' . $totalFiles . '개 파일)'
                 ]);
             } else {
                 return response()->json([
                     'success' => true,
                     'has_sangju' => false,
+                    'total_files' => $totalFiles,
+                    'checked_files' => $checkedFiles,
+                    'found_in_files' => [],
+                    'total_occurrences' => 0,
                     'message' => '모든 첨부파일에서 "상주" 단어를 찾을 수 없습니다. (검사: ' . $checkedFiles . '/' . $totalFiles . '개 파일) 이 공고는 적합합니다.'
                 ]);
             }
