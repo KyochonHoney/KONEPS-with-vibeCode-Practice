@@ -9,6 +9,12 @@
     .row-favorite {
         background-color: rgba(255, 245, 200, 0.5) !important; /* 연한 노랑 */
     }
+    .row-unsuitable {
+        background-color: rgba(255, 200, 200, 0.3) !important; /* 연한 빨강 */
+    }
+    .row-favorite.row-unsuitable {
+        background: linear-gradient(90deg, rgba(255, 245, 200, 0.5) 50%, rgba(255, 200, 200, 0.3) 50%) !important; /* 노랑+빨강 반반 */
+    }
 </style>
 <div class="container-fluid">
     <div class="row">
@@ -168,7 +174,7 @@
                                     <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>취소</option>
                                 </select>
                             </div>
-                            <div class="col-md-2 mb-3">
+                            <div class="col-md-3 mb-3">
                                 <label class="form-label d-block">&nbsp;</label>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="favorites_only" name="favorites_only" value="1"
@@ -184,8 +190,15 @@
                                         <i class="bi bi-chat-left-text-fill text-info"></i> 메모
                                     </label>
                                 </div>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="unsuitable_only" name="unsuitable_only" value="1"
+                                           {{ request('unsuitable_only') == '1' ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="unsuitable_only">
+                                        <i class="bi bi-x-circle-fill text-danger"></i> 비적합 공고
+                                    </label>
+                                </div>
                             </div>
-                            <div class="col-md-4 mb-3">
+                            <div class="col-md-3 mb-3">
                                 <label for="industry_pattern" class="form-label">업종코드</label>
                                 <select class="form-select" id="industry_pattern" name="industry_pattern">
                                     <option value="">전체 업종</option>
@@ -269,7 +282,12 @@
                                 </thead>
                                 <tbody>
                                     @foreach($tenders as $tender)
-                                        <tr class="{{ $tender->is_favorite ? 'row-favorite' : '' }}">
+                                        @php
+                                            $rowClass = '';
+                                            if ($tender->is_favorite) $rowClass .= 'row-favorite ';
+                                            if ($tender->is_unsuitable) $rowClass .= 'row-unsuitable ';
+                                        @endphp
+                                        <tr class="{{ trim($rowClass) }}">
                                             <td>
                                                 <input type="checkbox" class="tender-checkbox" value="{{ $tender->id }}">
                                             </td>
@@ -306,7 +324,10 @@
                                                     @if($tender->is_unsuitable)
                                                         <i class="bi bi-hand-thumbs-down-fill text-danger"
                                                            style="font-size: 1.2rem;"
-                                                           title="비적합 공고 (클릭하여 적합으로 변경)"></i>
+                                                           title="비적합 공고: {{ $tender->unsuitable_reason ?? '이유 없음' }} (클릭하여 적합으로 변경)"
+                                                           data-bs-toggle="tooltip"
+                                                           data-bs-placement="top"
+                                                           data-bs-html="true"></i>
                                                     @else
                                                         <i class="bi bi-hand-thumbs-down text-muted"
                                                            style="font-size: 1.2rem; opacity: 0.3;"
@@ -546,6 +567,12 @@
 
 <script>
 $(document).ready(function() {
+    // Bootstrap 툴팁 초기화
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+
     // Date Range Picker 초기화
     $('#date_range').daterangepicker({
         autoUpdateInput: false,

@@ -278,6 +278,17 @@ class TenderCollectorService
                                 'error' => $e->getMessage()
                             ]);
                         }
+
+                        // 업종제한사항 검사 (Playwright 웹 스크래핑)
+                        try {
+                            $industryCheckService = app(\App\Services\PlaywrightIndustryCheckService::class);
+                            $industryCheckService->checkIndustryRestrictionFromWeb($tender);
+                        } catch (Exception $e) {
+                            Log::warning('자동 업종제한 검사 실패', [
+                                'tender_id' => $tender->id,
+                                'error' => $e->getMessage()
+                            ]);
+                        }
                     }
                 } else {
                     $stats['updated_records']++;

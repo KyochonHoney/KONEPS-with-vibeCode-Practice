@@ -43,6 +43,7 @@ class Tender extends Model
         'status',
         'is_favorite',
         'is_unsuitable',
+        'unsuitable_reason',
         'source_url',
         'detail_url',
         'collected_at',

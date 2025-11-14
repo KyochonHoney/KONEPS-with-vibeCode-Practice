@@ -100,6 +100,11 @@ class TenderController extends Controller
             });
         }
 
+        // 비적합 공고만 필터
+        if ($request->filled('unsuitable_only') && $request->get('unsuitable_only') === '1') {
+            $query->where('is_unsuitable', true);
+        }
+
         $tenders = $query->latest('collected_at')
                          ->paginate(20)
                          ->withQueryString();

@@ -37,6 +37,11 @@
                         <i class="bi {{ $tender->is_unsuitable ? 'bi-hand-thumbs-down-fill' : 'bi-hand-thumbs-down' }} me-1"></i>
                         {{ $tender->is_unsuitable ? '비적합 공고' : '비적합 표시' }}
                     </button>
+                    @if($tender->is_unsuitable && $tender->unsuitable_reason)
+                        <span class="badge bg-danger-subtle text-danger ms-2" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                            <i class="bi bi-exclamation-circle me-1"></i>{{ $tender->unsuitable_reason }}
+                        </span>
+                    @endif
                     <a href="{{ route('admin.tenders.index') }}" class="btn btn-secondary ms-2">
                         <i class="bi bi-arrow-left me-1"></i>
                         목록으로
